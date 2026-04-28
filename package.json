@@ -1,0 +1,33 @@
+{
+  "name": "clipboard2markdown",
+  "version": "1.0.0",
+  "description": "Paste rich text, get clean Markdown. Browser-based converter with live preview and multiple markdown flavors.",
+  "keywords": [
+    "markdown",
+    "clipboard",
+    "html-to-markdown",
+    "converter",
+    "gfm",
+    "commonmark",
+    "pandoc",
+    "browser"
+  ],
+  "homepage": "https://ashok2ashok.github.io/clipboard2markdown/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ashok2ashok/clipboard2markdown.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ashok2ashok/clipboard2markdown/issues"
+  },
+  "license": "MIT",
+  "author": "Ashok Goli",
+  "files": [
+    "index.html",
+    "clipboard2markdown.js",
+    "favicon.ico",
+    "background.svg",
+    "background-dark.svg"
+  ],
+  "main": "clipboard2markdown.js"
+}
