@@ -1,186 +1,316 @@
-(function () {
+(() => {
   'use strict';
 
-  // http://pandoc.org/README.html#pandocs-markdown
-  var pandoc = [
-    {
-      filter: 'h1',
-      replacement: function (content, node) {
-        var underline = Array(content.length + 1).join('=');
-        return '\n\n' + content + '\n' + underline + '\n\n';
-      }
+  // ─── Flavor definitions ───────────────────────────────────────────────────
+  const FLAVORS = {
+    gfm: {
+      label: 'GitHub Flavored (GFM)',
+      headingStyle: 'atx',
+      tables: true,
+      strikethrough: true,
+      taskLists: true,
     },
-
-    {
-      filter: 'h2',
-      replacement: function (content, node) {
-        var underline = Array(content.length + 1).join('-');
-        return '\n\n' + content + '\n' + underline + '\n\n';
-      }
+    commonmark: {
+      label: 'CommonMark',
+      headingStyle: 'atx',
+      tables: false,   // strict spec: no table syntax → keep as HTML
+      strikethrough: false,
+      taskLists: false,
     },
-
-    {
-      filter: 'sup',
-      replacement: function (content) {
-        return '^' + content + '^';
-      }
+    pandoc: {
+      label: 'Pandoc',
+      headingStyle: 'atx',
+      tables: true,
+      strikethrough: true,
+      taskLists: false,
     },
-
-    {
-      filter: 'sub',
-      replacement: function (content) {
-        return '~' + content + '~';
-      }
+    rmarkdown: {
+      label: 'R Markdown',
+      headingStyle: 'atx',
+      tables: true,
+      strikethrough: true,
+      taskLists: false,
     },
-
-    {
-      filter: 'br',
-      replacement: function () {
-        return '\\\n';
-      }
+    multimarkdown: {
+      label: 'MultiMarkdown',
+      headingStyle: 'atx',
+      tables: true,
+      strikethrough: false,
+      taskLists: false,
     },
+  };
 
-    {
-      filter: 'hr',
-      replacement: function () {
-        return '\n\n* * * * *\n\n';
-      }
-    },
+  // ─── DOM-based table → markdown ───────────────────────────────────────────
+  // Pre-process tables using the real DOM before Turndown touches the HTML.
+  // This bypasses Turndown's block-element flanking-whitespace logic that
+  // inserts \n\n around every TR/TD/TBODY, causing blank lines between rows.
+  //
+  // Cell content uses textContent so inline formatting is kept simple.
+  // For inline markdown inside cells (bold, links) Turndown would need to
+  // re-enter — that tradeoff is acceptable for reliable table output.
 
-    {
-      filter: ['em', 'i', 'cite', 'var'],
-      replacement: function (content) {
-        return '*' + content + '*';
-      }
-    },
+  function tableToMarkdown(table) {
+    const rows = Array.from(table.querySelectorAll('tr'));
+    if (!rows.length) return '';
 
-    {
-      filter: function (node) {
-        var hasSiblings = node.previousSibling || node.nextSibling;
-        var isCodeBlock = node.parentNode.nodeName === 'PRE' && !hasSiblings;
-        var isCodeElem = node.nodeName === 'CODE' ||
-            node.nodeName === 'KBD' ||
-            node.nodeName === 'SAMP' ||
-            node.nodeName === 'TT';
-
-        return isCodeElem && !isCodeBlock;
-      },
-      replacement: function (content) {
-        return '`' + content + '`';
-      }
-    },
-
-    {
-      filter: function (node) {
-        return node.nodeName === 'A' && node.getAttribute('href');
-      },
-      replacement: function (content, node) {
-        var url = node.getAttribute('href');
-        var titlePart = node.title ? ' "' + node.title + '"' : '';
-        if (content === url) {
-          return '<' + url + '>';
-        } else if (url === ('mailto:' + content)) {
-          return '<' + content + '>';
-        } else {
-          return '[' + content + '](' + url + titlePart + ')';
-        }
-      }
-    },
-
-    {
-      filter: 'li',
-      replacement: function (content, node) {
-        content = content.replace(/^\s+/, '').replace(/\n/gm, '\n    ');
-        var prefix = '-   ';
-        var parent = node.parentNode;
-
-        if (/ol/i.test(parent.nodeName)) {
-          var index = Array.prototype.indexOf.call(parent.children, node) + 1;
-          prefix = index + '. ';
-          while (prefix.length < 4) {
-            prefix += ' ';
-          }
-        }
-
-        return prefix + content;
+    // Find the header row index (first row with <th> or inside <thead>)
+    let headerIdx = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].closest('thead') || rows[i].querySelector('th')) {
+        headerIdx = i;
+        break;
       }
     }
-  ];
 
-  // http://pandoc.org/README.html#smart-punctuation
-  var escape = function (str) {
-    return str.replace(/[\u2018\u2019\u00b4]/g, "'")
-              .replace(/[\u201c\u201d\u2033]/g, '"')
-              .replace(/[\u2212\u2022\u00b7\u25aa]/g, '-')
-              .replace(/[\u2013\u2015]/g, '--')
-              .replace(/\u2014/g, '---')
-              .replace(/\u2026/g, '...')
-              .replace(/[ ]+\n/g, '\n')
-              .replace(/\s*\\\n/g, '\\\n')
-              .replace(/\s*\\\n\s*\\\n/g, '\n\n')
-              .replace(/\s*\\\n\n/g, '\n\n')
-              .replace(/\n-\n/g, '\n')
-              .replace(/\n\n\s*\\\n/g, '\n\n')
-              .replace(/\n\n\n*/g, '\n\n')
-              .replace(/[ ]+$/gm, '')
-              .replace(/^\s+|[\s\\]+$/g, '');
-  };
+    const data = rows.map(row =>
+      Array.from(row.querySelectorAll('th, td')).map(cell =>
+        // collapse whitespace; escape pipes inside cell text
+        cell.textContent.trim().replace(/\s+/g, ' ').replace(/\|/g, '\\|') || ' '
+      )
+    );
 
-  var convert = function (str) {
-    return escape(toMarkdown(str, { converters: pandoc, gfm: true }));
+    const maxCols = Math.max(...data.map(r => r.length), 1);
+
+    // Pad all rows to equal width
+    const padded = data.map(r => {
+      const pad = maxCols - r.length;
+      return pad > 0 ? [...r, ...Array(pad).fill('')] : r;
+    });
+
+    const lines = [];
+    padded.forEach((cells, i) => {
+      lines.push('| ' + cells.join(' | ') + ' |');
+      if (i === headerIdx) {
+        const seps = Array.from(rows[i].querySelectorAll('th, td')).map(cell => {
+          const align = (cell.getAttribute('align') || '').toLowerCase();
+          if (align === 'right')  return '--:';
+          if (align === 'center') return ':-:';
+          return '---';
+        });
+        while (seps.length < maxCols) seps.push('---');
+        lines.push('| ' + seps.join(' | ') + ' |');
+      }
+    });
+
+    return lines.join('\n');
   }
 
-  var insert = function (myField, myValue) {
-      if (document.selection) {
-          myField.focus();
-          sel = document.selection.createRange();
-          sel.text = myValue;
-          sel.select()
-      } else {
-          if (myField.selectionStart || myField.selectionStart == "0") {
-              var startPos = myField.selectionStart;
-              var endPos = myField.selectionEnd;
-              var beforeValue = myField.value.substring(0, startPos);
-              var afterValue = myField.value.substring(endPos, myField.value.length);
-              myField.value = beforeValue + myValue + afterValue;
-              myField.selectionStart = startPos + myValue.length;
-              myField.selectionEnd = startPos + myValue.length;
-              myField.focus()
-          } else {
-              myField.value += myValue;
-              myField.focus()
-          }
-      }
-  };
+  // ─── Converter factory ────────────────────────────────────────────────────
+  function buildConverter(flavorKey) {
+    const flavor = FLAVORS[flavorKey];
 
-  // http://stackoverflow.com/questions/2176861/javascript-get-clipboard-data-on-paste-event-cross-browser
-  document.addEventListener('DOMContentLoaded', function () {
-    var info = document.querySelector('#info');
-    var pastebin = document.querySelector('#pastebin');
-    var output = document.querySelector('#output');
-    var wrapper = document.querySelector('#wrapper');
-
-    document.addEventListener('keydown', function (event) {
-      if (event.ctrlKey || event.metaKey) {
-        if (String.fromCharCode(event.which).toLowerCase() === 'v') {
-          pastebin.innerHTML = '';
-          pastebin.focus();
-          info.classList.add('hidden');
-          wrapper.classList.add('hidden');
-        }
-      }
+    const td = new TurndownService({
+      headingStyle:     flavor.headingStyle,
+      hr:               '---',
+      bulletListMarker: '-',
+      codeBlockStyle:   'fenced',
+      fence:            '```',
+      emDelimiter:      '*',
+      strongDelimiter:  '**',
+      linkStyle:        'inlined',
     });
 
-    pastebin.addEventListener('paste', function () {
-      setTimeout(function () {
-        var html = pastebin.innerHTML;
-        var markdown = convert(html);
-        // output.value = markdown;
-        insert(output, markdown);
-        wrapper.classList.remove('hidden');
-        output.focus();
-        output.select();
-      }, 200);
+    // Use individual GFM plugins — NOT .gfm or .tables which add a `keep` rule
+    // that silently preserves <td>-only tables as raw HTML.
+    if (flavor.strikethrough) td.use(turndownPluginGfm.strikethrough);
+    if (flavor.taskLists)     td.use(turndownPluginGfm.taskListItems);
+
+    if (!flavor.tables) {
+      // CommonMark: keep table HTML verbatim
+      td.keep(['table']);
+    }
+
+    td.addRule('superscript', { filter: 'sup', replacement: c => `^${c}^` });
+    td.addRule('subscript',   { filter: 'sub', replacement: c => `~${c}~` });
+
+    return td;
+  }
+
+  // ─── marked: Markdown → HTML preview ─────────────────────────────────────
+  marked.use({ breaks: true, gfm: true });
+
+  // ─── Prettify ─────────────────────────────────────────────────────────────
+  // Table-aware: never inserts blank lines adjacent to pipe-table rows.
+  function prettify(md) {
+    const lines = md
+      .replace(/\r\n?/g, '\n')
+      .split('\n')
+      .map(l => l.trimEnd());
+
+    const out   = [];
+    const isRow = l => /^\|/.test(l);
+
+    for (let i = 0; i < lines.length; i++) {
+      const prev = out.length > 0 ? out[out.length - 1] : '';
+      const cur  = lines[i];
+      const next = lines[i + 1] ?? '';
+
+      // Collapse 3+ consecutive blank lines to 1
+      if (!cur && !prev && (i === 0 || !out[out.length - 2])) continue;
+
+      // Ensure blank line before ATX heading —
+      // but NOT if previous line is a table row
+      if (/^#{1,6} /.test(cur) && prev && !isRow(prev)) {
+        if (prev !== '') out.push('');
+      }
+
+      out.push(cur);
+
+      // Ensure blank line after ATX heading —
+      // but NOT if next line is a table row (table can follow heading without gap)
+      if (/^#{1,6} /.test(cur) && next && next !== '' && !isRow(next)) {
+        out.push('');
+      }
+    }
+
+    return out.join('\n').trim();
+  }
+
+  // ─── Smart typography (post-process, keeps td.escape intact for pipe tables)
+  function smartTypography(str) {
+    return str
+      .replace(/[\u2018\u2019\u00b4]/g, "'")
+      .replace(/[\u201c\u201d\u2033]/g,  '"')
+      .replace(/[\u2212\u2022\u00b7\u25aa]/g, '-')
+      .replace(/[\u2013\u2015]/g, '--')
+      .replace(/\u2014/g, '---')
+      .replace(/\u2026/g, '...');
+  }
+
+  // ─── State ────────────────────────────────────────────────────────────────
+  let currentHtml   = '';
+  let currentFlavor = 'gfm';
+
+  const converters = Object.fromEntries(
+    Object.keys(FLAVORS).map(k => [k, buildConverter(k)])
+  );
+
+  // ─── DOM refs ─────────────────────────────────────────────────────────────
+  const pastebin     = document.getElementById('pastebin');
+  const output       = document.getElementById('output');
+  const previewEl    = document.getElementById('preview-content');
+  const htmlSource   = document.getElementById('html-source');
+  const landing      = document.getElementById('landing');
+  const app          = document.getElementById('app');
+  const btnCopy      = document.getElementById('btn-copy');
+  const flavorSelect = document.getElementById('flavor-select');
+
+  // ─── Conversion pipeline ──────────────────────────────────────────────────
+  function convert(html) {
+    const flavor  = FLAVORS[currentFlavor];
+    const td      = converters[currentFlavor];
+
+    if (!flavor.tables) {
+      // CommonMark: pass straight through
+      return prettify(smartTypography(td.turndown(html)));
+    }
+
+    // Pre-process: extract tables from DOM, convert to markdown, replace with
+    // unique placeholders that Turndown will pass through as plain text.
+    const parser = new DOMParser();
+    const doc    = parser.parseFromString(html, 'text/html');
+    const tables = Array.from(doc.body.querySelectorAll('table'));
+
+    const tableMap = new Map();
+    tables.forEach((table, i) => {
+      const key  = `XXTBL${i}XX`;
+      const mdTbl = tableToMarkdown(table);
+      tableMap.set(key, mdTbl);
+
+      const placeholder = doc.createElement('p');
+      placeholder.textContent = key;
+      table.parentNode.replaceChild(placeholder, table);
     });
+
+    let md = td.turndown(doc.body.innerHTML);
+
+    // Restore table markdown in place of placeholders
+    tableMap.forEach((mdTbl, key) => {
+      md = md.replace(key, '\n\n' + mdTbl);
+    });
+
+    return prettify(smartTypography(md));
+  }
+
+  // ─── View switching ───────────────────────────────────────────────────────
+  function showApp()     { landing.classList.add('d-none');    app.classList.remove('d-none'); }
+  function showLanding() { app.classList.add('d-none'); landing.classList.remove('d-none'); }
+
+  document.getElementById('nav-brand').addEventListener('click', showLanding);
+
+  // ─── Preview sync ─────────────────────────────────────────────────────────
+  function updatePreview() {
+    previewEl.innerHTML = DOMPurify.sanitize(marked.parse(output.value || ''));
+  }
+
+  output.addEventListener('input', updatePreview);
+
+  // ─── Flavor change → re-convert stored HTML ───────────────────────────────
+  flavorSelect.addEventListener('change', () => {
+    currentFlavor = flavorSelect.value;
+    if (currentHtml) {
+      output.value = convert(currentHtml);
+      updatePreview();
+      output.focus();
+      output.select();
+    }
   });
+
+  // ─── Paste capture ────────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+      pastebin.innerHTML = '';
+      pastebin.focus();
+    }
+  });
+
+  pastebin.addEventListener('paste', () => {
+    setTimeout(() => {
+      const html = pastebin.innerHTML;
+      pastebin.innerHTML = '';
+      if (!html) return;
+
+      currentHtml = html;
+      htmlSource.textContent = html;
+
+      showApp();
+      output.value = convert(html);
+      updatePreview();
+      output.focus();
+      output.select();
+    }, 0);
+  });
+
+  // ─── Toolbar: Prettify ────────────────────────────────────────────────────
+  document.getElementById('btn-prettify').addEventListener('click', () => {
+    if (!output.value) return;
+    output.value = prettify(output.value);
+    updatePreview();
+  });
+
+  // ─── Toolbar: Copy ────────────────────────────────────────────────────────
+  btnCopy.addEventListener('click', async () => {
+    if (!output.value) return;
+    await navigator.clipboard.writeText(output.value);
+    btnCopy.textContent = 'Copied!';
+    btnCopy.classList.add('copied');
+    setTimeout(() => { btnCopy.textContent = 'Copy'; btnCopy.classList.remove('copied'); }, 1500);
+  });
+
+  // ─── Toolbar: Clear → landing ─────────────────────────────────────────────
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    currentHtml = '';
+    output.value = '';
+    previewEl.innerHTML = '';
+    htmlSource.textContent = '';
+    document.getElementById('html-accordion').removeAttribute('open');
+    showLanding();
+  });
+
+  // ─── Bootstrap dark mode ──────────────────────────────────────────────────
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const applyTheme = dark =>
+    document.documentElement.setAttribute('data-bs-theme', dark ? 'dark' : 'light');
+  applyTheme(mq.matches);
+  mq.addEventListener('change', e => applyTheme(e.matches));
 })();

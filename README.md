@@ -1,63 +1,51 @@
-clipboard2markdown
-==================
+# clipboard2markdown
 
-> Easily convert richly formatted text or HTML to
-> [Markdown](http://daringfireball.net/projects/markdown/syntax).
-> Use the clipboard and paste to Markdown with a single keypress.
->
-> The conversion is carried out by
-> [to-markdown](https://github.com/domchristie/to-markdown),
-> a Markdown converter running in the browser.
+> Paste richly formatted text — get clean Markdown instantly.
 
-Demo
-----
-
-### Interactive
-
-<http://euangoddard.github.io/clipboard2markdown/>
-
-### Video
+**[Live demo →](https://ashok2ashok.github.io/clipboard2markdown/)**
 
 ![Screencast](screencast.gif)
 
-Usage
------
+---
 
-Open [index.html](index.html) in a favorite browser and hit `Ctrl+C`
-(or `⌘+C` on Mac).
+## Usage
 
-To copy the converted Markdown to the clipboard, press `Ctrl+A`
-followed by `Ctrl+C` (or `⌘+A` and `⌘+C` on Mac).
+1. Copy formatted text from anywhere (`Ctrl+C` / `⌘C`)
+2. Paste into the app (`Ctrl+V` / `⌘V`)
+3. Markdown appears — already selected, ready to copy
 
-One can paste multiple times. This overwrites the previous conversion.
+Paste again to replace. Switch flavors to re-convert on the fly.
 
-### Tested browsers
+---
 
--   Chrome 33 (Linux and OS X)
--   Firefox 27 (Linux)
--   Safari 5 (OS X)
--   Internet Explorer 11 (Windows)
+## Features
 
-About
------
+- **Split-panel live preview** — rendered with the same stack as [markdownlivepreview.com](https://markdownlivepreview.com)
+- **Markdown flavors** — GitHub (GFM), CommonMark, Pandoc, R Markdown, MultiMarkdown
+- **Prettify** — normalizes heading spacing, collapses blank lines, trims trailing whitespace
+- **Raw HTML accordion** — inspect the original pasted HTML below the editor
+- **Dark mode** — follows system preference automatically
+- **No server** — runs entirely in the browser
 
-[clipboard2markdown](https://github.com/euangoddard/clipboard2markdown)
-was created by [Euan Goddard](https://github.com/euangoddard).
-The original version used
-[html2markdown](https://github.com/kates/html2markdown) by
-[Kates Gasis](https://github.com/kates) and
-[Himanshu Gilani](https://github.com/hgilani).
-[Vegard Øye](https://github.com/epsil) ported it to
-[to-markdown](https://github.com/domchristie/to-markdown) by
-[Dom Christie](https://github.com/domchristie). The HTML template
-is based on [Bootstrap](http://getbootstrap.com/).
+---
 
-### License
+## Tech stack
 
-[![License][license-image]][license-url]
+| Library | Version | Role |
+| --- | --- | --- |
+| [Turndown](https://github.com/mixmark-io/turndown) | 7.2.0 | HTML → Markdown |
+| [turndown-plugin-gfm](https://github.com/mixmark-io/turndown-plugin-gfm) | 1.0.2 | GFM strikethrough + task lists |
+| [marked](https://github.com/markedjs/marked) | 15.0.7 | Markdown → HTML preview |
+| [DOMPurify](https://github.com/cure53/DOMPurify) | 3.2.4 | Sanitize preview HTML |
+| [github-markdown-css](https://github.com/sindresorhus/github-markdown-css) | 5.8.1 | Preview styling |
+| [Bootstrap](https://getbootstrap.com) | 5.3.3 | UI |
 
-Released under the MIT License. See the [LICENSE](LICENSE) file
-for details.
+All loaded via CDN — no build step required.
 
-[license-image]: https://img.shields.io/npm/l/markdownlint.svg
-[license-url]: http://opensource.org/licenses/MIT
+---
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+Original project by [Euan Goddard](https://github.com/euangoddard).
