@@ -298,9 +298,13 @@
     if (zone) zone.focus();
   }
 
-  // ─── Mobile paste zone (long-press → native paste) ───────────────────────
+  // ─── Mobile paste zone (tap → Clipboard API; long-press → native paste) ───
   const mobilePasteZone = document.getElementById('mobile-paste-zone');
   if (mobilePasteZone) {
+    // Tapping the zone first tries the Clipboard API; if that fails the zone
+    // is now focused so the user can immediately long-press → Paste natively.
+    mobilePasteZone.addEventListener('click', pasteFromClipboard);
+
     mobilePasteZone.addEventListener('paste', e => {
       e.preventDefault();
       const cd  = e.clipboardData;
