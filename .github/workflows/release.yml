@@ -4,6 +4,9 @@ on:
   push:
     branches: [master]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 # Prevent concurrent deploys; queue instead of cancel so no push is skipped
 concurrency:
   group: release-deploy
