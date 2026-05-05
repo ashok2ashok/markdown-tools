@@ -40,6 +40,24 @@
     },
   };
 
+  // ─── Pre-compiled regexes ─────────────────────────────────────────────────
+  const RE_CRLF       = /\r\n?/g;
+  const RE_PIPE       = /\|/g;
+  const RE_WHITESPACE = /\s+/g;
+  const RE_HEADING    = /^#{1,6} /;
+  const RE_SMART_SQ   = /[\u2018\u2019\u00b4]/g;
+  const RE_SMART_DQ   = /[\u201c\u201d\u2033]/g;
+  const RE_DASH_S     = /[\u2212\u2022\u00b7\u25aa]/g;
+  const RE_DASH_EN    = /[\u2013\u2015]/g;
+  const RE_DASH_EM    = /\u2014/g;
+  const RE_ELLIPSIS   = /\u2026/g;
+
+  // Fast pipe-row test: check first char code instead of regex
+  const isRow = l => l.charCodeAt(0) === 124; // '|'
+
+  // ─── Shared DOMParser instance ────────────────────────────────────────────
+  const parser = new DOMParser();
+
   // ─── DOM-based table → markdown ───────────────────────────────────────────
   // Pre-process tables using the real DOM before Turndown touches the HTML.
   // This bypasses Turndown's block-element flanking-whitespace logic that
@@ -65,7 +83,7 @@
     const data = rows.map(row =>
       Array.from(row.querySelectorAll('th, td')).map(cell =>
         // collapse whitespace; escape pipes inside cell text
-        cell.textContent.trim().replace(/\s+/g, ' ').replace(/\|/g, '\\|') || ' '
+        cell.textContent.trim().replace(RE_WHITESPACE, ' ').replace(RE_PIPE, '\\|') || ' '
       )
     );
 
@@ -133,12 +151,11 @@
   // Table-aware: never inserts blank lines adjacent to pipe-table rows.
   function prettify(md) {
     const lines = md
-      .replace(/\r\n?/g, '\n')
+      .replace(RE_CRLF, '\n')
       .split('\n')
       .map(l => l.trimEnd());
 
     const out   = [];
-    const isRow = l => /^\|/.test(l);
 
     for (let i = 0; i < lines.length; i++) {
       const prev = out.length > 0 ? out[out.length - 1] : '';
@@ -150,7 +167,7 @@
 
       // Ensure blank line before ATX heading —
       // but NOT if previous line is a table row
-      if (/^#{1,6} /.test(cur) && prev && !isRow(prev)) {
+      if (RE_HEADING.test(cur) && prev && !isRow(prev)) {
         if (prev !== '') out.push('');
       }
 
@@ -158,7 +175,7 @@
 
       // Ensure blank line after ATX heading —
       // but NOT if next line is a table row (table can follow heading without gap)
-      if (/^#{1,6} /.test(cur) && next && next !== '' && !isRow(next)) {
+      if (RE_HEADING.test(cur) && next && next !== '' && !isRow(next)) {
         out.push('');
       }
     }
@@ -169,17 +186,20 @@
   // ─── Smart typography (post-process, keeps td.escape intact for pipe tables)
   function smartTypography(str) {
     return str
-      .replace(/[\u2018\u2019\u00b4]/g, "'")
-      .replace(/[\u201c\u201d\u2033]/g,  '"')
-      .replace(/[\u2212\u2022\u00b7\u25aa]/g, '-')
-      .replace(/[\u2013\u2015]/g, '--')
-      .replace(/\u2014/g, '---')
-      .replace(/\u2026/g, '...');
+      .replace(RE_SMART_SQ,  "'")
+      .replace(RE_SMART_DQ,  '"')
+      .replace(RE_DASH_S,    '-')
+      .replace(RE_DASH_EN,   '--')
+      .replace(RE_DASH_EM,   '---')
+      .replace(RE_ELLIPSIS,  '...');
   }
 
   // ─── State ────────────────────────────────────────────────────────────────
   let currentHtml   = '';
   let currentFlavor = 'gfm';
+
+  // Per-flavor conversion cache; cleared on each new paste
+  const flavorCache = new Map();
 
   const converters = Object.fromEntries(
     Object.keys(FLAVORS).map(k => [k, buildConverter(k)])
@@ -200,39 +220,48 @@
 
   // ─── Conversion pipeline ──────────────────────────────────────────────────
   function convert(html) {
-    const flavor  = FLAVORS[currentFlavor];
-    const td      = converters[currentFlavor];
+    if (flavorCache.has(currentFlavor)) return flavorCache.get(currentFlavor);
 
-    if (!flavor.tables) {
-      // CommonMark: pass straight through
-      return prettify(smartTypography(td.turndown(html)));
+    let result;
+    try {
+      const flavor = FLAVORS[currentFlavor];
+      const td     = converters[currentFlavor];
+
+      if (!flavor.tables) {
+        // CommonMark: pass straight through
+        result = prettify(smartTypography(td.turndown(html)));
+      } else {
+        // Pre-process: extract tables from DOM, convert to markdown, replace with
+        // unique placeholders that Turndown will pass through as plain text.
+        const doc    = parser.parseFromString(html, 'text/html');
+        const tables = Array.from(doc.body.querySelectorAll('table'));
+
+        const tableMap = new Map();
+        tables.forEach((table, i) => {
+          const key  = `XXTBL${i}XX`;
+          tableMap.set(key, tableToMarkdown(table));
+
+          const placeholder = doc.createElement('p');
+          placeholder.textContent = key;
+          table.parentNode.replaceChild(placeholder, table);
+        });
+
+        let md = td.turndown(doc.body.innerHTML);
+
+        // Restore table markdown in place of placeholders
+        tableMap.forEach((mdTbl, key) => {
+          md = md.replace(key, '\n\n' + mdTbl);
+        });
+
+        result = prettify(smartTypography(md));
+      }
+    } catch (err) {
+      console.error('[clipboard2markdown] Conversion failed:', err);
+      result = '';
     }
 
-    // Pre-process: extract tables from DOM, convert to markdown, replace with
-    // unique placeholders that Turndown will pass through as plain text.
-    const parser = new DOMParser();
-    const doc    = parser.parseFromString(html, 'text/html');
-    const tables = Array.from(doc.body.querySelectorAll('table'));
-
-    const tableMap = new Map();
-    tables.forEach((table, i) => {
-      const key  = `XXTBL${i}XX`;
-      const mdTbl = tableToMarkdown(table);
-      tableMap.set(key, mdTbl);
-
-      const placeholder = doc.createElement('p');
-      placeholder.textContent = key;
-      table.parentNode.replaceChild(placeholder, table);
-    });
-
-    let md = td.turndown(doc.body.innerHTML);
-
-    // Restore table markdown in place of placeholders
-    tableMap.forEach((mdTbl, key) => {
-      md = md.replace(key, '\n\n' + mdTbl);
-    });
-
-    return prettify(smartTypography(md));
+    flavorCache.set(currentFlavor, result);
+    return result;
   }
 
   // ─── View switching ───────────────────────────────────────────────────────
@@ -241,16 +270,23 @@
 
   document.getElementById('nav-brand').addEventListener('click', showLanding);
 
-  // ─── Preview sync ─────────────────────────────────────────────────────────
+  // ─── Preview sync (debounced — avoids thrashing marked+DOMPurify on keystrokes)
   function updatePreview() {
     previewEl.innerHTML = DOMPurify.sanitize(marked.parse(output.value || ''));
   }
 
-  output.addEventListener('input', updatePreview);
+  let previewTimer = 0;
+  output.addEventListener('input', () => {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(updatePreview, 200);
+  });
 
   // ─── Flavor change → re-convert stored HTML ───────────────────────────────
   flavorSelect.addEventListener('change', () => {
-    currentFlavor = flavorSelect.value;
+    const val = flavorSelect.value;
+    // Guard against tampered option values
+    if (!Object.hasOwn(FLAVORS, val)) return;
+    currentFlavor = val;
     if (currentHtml) {
       output.value = convert(currentHtml);
       updatePreview();
@@ -263,6 +299,7 @@
   function processHtml(html) {
     if (!html) return;
     currentHtml = html;
+    flavorCache.clear();
     htmlSource.textContent = html;
     showApp();
     output.value = convert(html);
@@ -345,15 +382,23 @@
   // ─── Toolbar: Copy ────────────────────────────────────────────────────────
   btnCopy.addEventListener('click', async () => {
     if (!output.value) return;
-    await navigator.clipboard.writeText(output.value);
-    btnCopy.textContent = 'Copied!';
-    btnCopy.classList.add('copied');
-    setTimeout(() => { btnCopy.textContent = 'Copy'; btnCopy.classList.remove('copied'); }, 1500);
+    try {
+      await navigator.clipboard.writeText(output.value);
+      btnCopy.textContent = 'Copied!';
+      btnCopy.classList.add('copied');
+      setTimeout(() => { btnCopy.textContent = 'Copy'; btnCopy.classList.remove('copied'); }, 1500);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context, permissions denied)
+      // Fall back to selecting the text so user can copy manually
+      output.focus();
+      output.select();
+    }
   });
 
   // ─── Toolbar: Clear → landing ─────────────────────────────────────────────
   document.getElementById('btn-clear').addEventListener('click', () => {
     currentHtml = '';
+    flavorCache.clear();
     output.value = '';
     previewEl.innerHTML = '';
     htmlSource.textContent = '';

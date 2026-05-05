@@ -25,6 +25,7 @@
   "files": [
     "index.html",
     "clipboard2markdown.js",
+    "styles.css",
     "favicon.ico",
     "background.svg",
     "background-dark.svg"
