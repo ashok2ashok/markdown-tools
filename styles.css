@@ -239,6 +239,16 @@ kbd { font-size: 0.75em; }
   touch-action: manipulation;
 }
 
+.nav-hint {
+  white-space: nowrap;
+  opacity: 0.6;
+}
+
+.nav-flavor {
+  width: auto;
+  max-width: 160px;
+}
+
 #btn-copy.copied {
   --bs-btn-color: #fff;
   --bs-btn-bg: #198754;

@@ -67,22 +67,24 @@
       <button id="nav-brand" class="nav-brand navbar-brand mb-0 fw-semibold fs-6 me-auto btn btn-link p-0 text-body text-decoration-none">
         clipboard2markdown
       </button>
-      <div class="nav-actions d-flex gap-2 align-items-center">
-        <span class="text-muted small d-none d-lg-inline">
-          Paste again to replace &nbsp;<kbd>Ctrl+V</kbd> / <kbd>⌘V</kbd>
+      <div class="nav-actions d-flex gap-2 align-items-center flex-nowrap">
+        <span class="text-muted small d-none d-xl-inline nav-hint">
+          <kbd>Ctrl+V</kbd> / <kbd>⌘V</kbd> to replace
         </span>
         <button id="btn-mobile-paste-app" class="btn btn-sm btn-outline-primary d-none" title="Paste from clipboard" style="touch-action:manipulation;">Paste</button>
-        <select id="flavor-select" class="form-select form-select-sm" style="width: auto;" title="Markdown flavor" aria-label="Markdown flavor">
+        <select id="flavor-select" class="form-select form-select-sm nav-flavor" title="Markdown flavor" aria-label="Markdown flavor">
           <option value="gfm">GitHub (GFM)</option>
           <option value="commonmark">CommonMark</option>
           <option value="pandoc">Pandoc</option>
           <option value="rmarkdown">R Markdown</option>
           <option value="multimarkdown">MultiMarkdown</option>
         </select>
-        <button id="btn-prettify" class="btn btn-sm btn-outline-secondary d-none d-md-inline-block" title="Normalize heading spacing, collapse blank lines, trim whitespace">Prettify</button>
-        <button id="btn-copy"     class="btn btn-sm btn-outline-primary"   title="Copy markdown to clipboard">Copy</button>
-        <button id="btn-clear"    class="btn btn-sm btn-outline-danger"    title="Clear and return to start">Clear</button>
-        <a      id="btn-preview"  class="btn btn-sm btn-outline-success d-none d-md-inline-flex" href="https://markdownlivepreview.com/" target="_blank" rel="noopener noreferrer">Preview ↗</a>
+        <div class="d-none d-md-flex gap-2">
+          <button id="btn-prettify" class="btn btn-sm btn-outline-secondary" title="Normalize heading spacing, collapse blank lines, trim whitespace">Prettify</button>
+          <a      id="btn-preview"  class="btn btn-sm btn-outline-secondary" href="https://markdownlivepreview.com/" target="_blank" rel="noopener noreferrer" title="Open in Markdown Live Preview">Preview ↗</a>
+        </div>
+        <button id="btn-copy"  class="btn btn-sm btn-primary"      title="Copy markdown to clipboard">Copy</button>
+        <button id="btn-clear" class="btn btn-sm btn-outline-danger" title="Clear and return to start">Clear</button>
       </div>
     </nav>
 
