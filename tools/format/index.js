@@ -1,4 +1,5 @@
 import { prettifyMarkdown, smartTypography, copyText, downloadFile, toast, debounce, diffLines } from '../../shared/utils.js';
+import { store } from '../../shared/store.js';
 
 let ctrl = null;
 
@@ -108,8 +109,18 @@ export default {
 
     function esc(s='') { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+    // Auto-populate from shared markdown state
+    const shared = store.get('currentMarkdown', '');
+    if (shared && !el('#fmt-input').value) {
+      el('#fmt-input').value = shared;
+      run();
+    }
+
     const schedRun = debounce(run, 250);
-    el('#fmt-input').addEventListener('input', schedRun, { signal });
+    el('#fmt-input').addEventListener('input', e => {
+      store.set('currentMarkdown', e.target.value);
+      schedRun();
+    }, { signal });
     container.querySelectorAll('.fmt-opt').forEach(inp => {
       inp.addEventListener('change', run, { signal });
     });
@@ -157,7 +168,7 @@ function TEMPLATE() { return `
   </div>
   <div class="tool-body flex-col">
     <!-- Options -->
-    <div style="display:flex;flex-wrap:wrap;gap:var(--sp-4);padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0;align-items:center">
+    <div class="tool-bar">
       <label class="checkbox-wrap"><input type="checkbox" class="fmt-opt" id="opt-normalize" checked> Normalize headings</label>
       <label class="checkbox-wrap"><input type="checkbox" class="fmt-opt" id="opt-blanks" checked> Collapse blank lines</label>
       <label class="checkbox-wrap"><input type="checkbox" class="fmt-opt" id="opt-trailing" checked> Trim trailing spaces</label>
@@ -167,16 +178,17 @@ function TEMPLATE() { return `
       <label class="checkbox-wrap"><input type="checkbox" class="fmt-opt" id="opt-diff"> Show diff</label>
     </div>
     <!-- Lint bar -->
-    <div id="fmt-lint" style="padding:var(--sp-2) var(--sp-4);border-bottom:1px solid var(--border);min-height:32px;display:flex;flex-wrap:wrap;align-items:center;gap:var(--sp-1);flex-shrink:0;background:var(--surface)"></div>
+    <div id="fmt-lint" class="lint-bar"></div>
     <!-- Editors -->
-    <div class="split-2" style="flex:1;min-height:0">
+    <div class="split-2 fill" style="border-top:2px solid var(--border-strong)">
       <div class="panel panel-editor">
         <div class="panel-header"><span class="panel-label">Input</span></div>
         <textarea id="fmt-input" class="code-editor" spellcheck="false" placeholder="Paste markdown to format…" aria-label="Markdown input"></textarea>
       </div>
-      <div class="panel panel-preview" style="display:flex;flex-direction:column">
+      <div class="split-handle" data-dir="h"></div>
+      <div class="panel panel-preview">
         <div class="panel-header"><span class="panel-label">Formatted</span></div>
-        <textarea id="fmt-output" class="code-editor" spellcheck="false" readonly style="flex:1" aria-label="Formatted output"></textarea>
+        <textarea id="fmt-output" class="code-editor" spellcheck="false" readonly aria-label="Formatted output"></textarea>
         <div id="fmt-diff" class="scroll-region" style="display:none;border-top:1px solid var(--border);max-height:240px;overflow:auto"></div>
       </div>
     </div>

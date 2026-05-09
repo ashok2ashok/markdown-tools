@@ -20,10 +20,13 @@ let ctrl = null;
 let currentHtml = '';
 let currentFlavor = 'gfm';
 let converters = {};
+let convertersReady = false;
+let pendingHtml = null;
 let flavorCache = new Map();
 let splitMode = 'split'; // split | left | right
 let previewTimer = 0;
 let historyOpen = false;
+let previewZoom = 100; // percentage
 
 export default {
   id: 'paste',
@@ -36,6 +39,7 @@ export default {
 
     currentFlavor = store.get('flavor', 'gfm');
     splitMode = store.get('splitView', 'split');
+    previewZoom = store.get('previewZoom', 100);
 
     container.innerHTML = TEMPLATE(currentFlavor, splitMode);
 
@@ -44,7 +48,6 @@ export default {
     const output      = el('md-output');
     const previewEl   = el('md-preview');
     const htmlSource  = el('html-source');
-    const pastebin    = el('pastebin');
     const statusWords = el('status-words');
     const statusChars = el('status-chars');
     const toolBody    = el('tool-body');
@@ -58,11 +61,15 @@ export default {
       });
     }
 
-    // Build all converters
-    load('turndown','turndownGfm','dompurify','githubCss').then(() => {
+    // Build all converters — process any paste that arrived before CDN loaded
+    load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
       marked.use({ breaks: true, gfm: true });
       FLAVORS.forEach(f => { converters[f.id] = buildConverter(f.id); });
-      // If there's pending html from store (e.g. restored session), convert it
+      convertersReady = true;
+      if (pendingHtml) { processHtml(pendingHtml); pendingHtml = null; }
+    }).catch(err => {
+      console.error('[paste] CDN load failed:', err);
+      el('landing-msg').textContent = 'Failed to load converter — check your connection.';
     });
 
     // ── Conversion ──
@@ -104,12 +111,30 @@ export default {
       return md;
     }
 
+    function showEmptyWarning() {
+      const warn = el('paste-warning');
+      if (!warn) return;
+      warn.classList.remove('d-none');
+      clearTimeout(warn._timer);
+      warn._timer = setTimeout(() => warn.classList.add('d-none'), 3500);
+    }
+
     function processHtml(html) {
-      if (!html) return;
+      if (!html || !html.trim() || html === '<br>') { showEmptyWarning(); return; }
+      // CDN still loading — queue and show spinner
+      if (!convertersReady) {
+        pendingHtml = html;
+        el('landing-msg').textContent = 'Converting…';
+        return;
+      }
+      // Same content — skip
+      if (html === currentHtml) { toast('Same content already converted'); return; }
       currentHtml = html;
       flavorCache.clear();
       htmlSource.textContent = html;
       output.value = convert(html);
+      store.set('currentMarkdown', output.value);
+      el('landing-msg').textContent = '';
       showApp();
       updatePreview();
       updateStatus();
@@ -129,14 +154,31 @@ export default {
     function showLanding() {
       el('app-body').classList.add('d-none');
       el('landing').classList.remove('d-none');
+      el('paste-warning')?.classList.add('d-none');
+      el('landing-msg').textContent = '';
     }
 
     // ── Preview ──
+    const PREVIEW_CHAR_LIMIT = 200_000;
     function updatePreview() {
       if (typeof DOMPurify === 'undefined' || typeof marked === 'undefined') return;
-      previewEl.innerHTML = DOMPurify.sanitize(marked.parse(output.value || ''));
+      const md = output.value || '';
+      if (md.length > PREVIEW_CHAR_LIMIT) {
+        previewEl.innerHTML = `<p style="color:var(--text-muted);font-style:italic">Preview paused — document is very large (${Math.round(md.length/1000)}K chars). Scroll the editor instead.</p>`;
+        return;
+      }
+      previewEl.innerHTML = DOMPurify.sanitize(marked.parse(md));
     }
-    const schedulePreview = debounce(updatePreview, 200);
+    const schedulePreview = debounce(updatePreview, 300);
+
+    function applyZoom(zoom) {
+      previewZoom = Math.min(200, Math.max(50, zoom));
+      store.set('previewZoom', previewZoom);
+      const pane = container.querySelector('.preview-pane');
+      if (pane) pane.style.fontSize = previewZoom + '%';
+      const zoomLabel = el('preview-zoom-label');
+      if (zoomLabel) zoomLabel.textContent = previewZoom + '%';
+    }
 
     function updateStatus() {
       const { words, chars } = wordCount(output.value);
@@ -149,7 +191,9 @@ export default {
     function applySplit(mode) {
       splitMode = mode;
       store.set('splitView', mode);
-      const body = el('app-body');
+      // Target the inner tool-body (sibling of status bar, child of #app-body wrapper)
+      const body = container.querySelector('.tool-body');
+      if (!body) return;
       body.className = body.className.replace(/split-\w+/g,'').trim();
       body.classList.add('split-' + (mode === 'split' ? '2' : mode === 'left' ? 'left' : 'right'));
       container.querySelectorAll('.seg-btn[data-split]').forEach(b => {
@@ -186,21 +230,23 @@ export default {
 
     // ── Event listeners ──
 
-    // Keyboard paste intercept
-    document.addEventListener('keydown', e => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !e.target.matches('textarea,input,[contenteditable]')) {
-        pastebin.innerHTML = '';
-        pastebin.focus();
+    // Intercept paste anywhere on the page (except inside text inputs / md editor)
+    document.addEventListener('paste', e => {
+      // Don't intercept when typing in the markdown output editor or other inputs
+      if (e.target.matches('#md-output,input,select')) return;
+      e.preventDefault();
+      const html = e.clipboardData.getData('text/html');
+      const text = e.clipboardData.getData('text/plain');
+      const content = html || text;
+      if (!content || !content.trim()) {
+        showEmptyWarning();
+      } else {
+        processHtml(content);
       }
     }, { signal });
 
-    pastebin.addEventListener('paste', () => {
-      setTimeout(() => {
-        const html = pastebin.innerHTML;
-        pastebin.innerHTML = '';
-        if (html) processHtml(html);
-      }, 0);
-    }, { signal });
+    // Brand logo click → show landing
+    document.addEventListener('mdtools:showLanding', showLanding, { signal });
 
     // Drag & drop HTML file
     container.addEventListener('dragover', e => {
@@ -222,7 +268,12 @@ export default {
     }, { signal });
 
     // Output edit
-    output.addEventListener('input', () => { flavorCache.delete(currentFlavor); schedulePreview(); scheduleStatus(); }, { signal });
+    output.addEventListener('input', () => {
+      flavorCache.delete(currentFlavor);
+      store.set('currentMarkdown', output.value);
+      schedulePreview();
+      scheduleStatus();
+    }, { signal });
 
     // Flavor
     container.querySelectorAll('.flavor-btn').forEach(btn => {
@@ -238,6 +289,10 @@ export default {
     container.querySelectorAll('.seg-btn[data-split]').forEach(btn => {
       btn.addEventListener('click', () => applySplit(btn.dataset.split), { signal });
     });
+
+    // Preview zoom
+    el('btn-zoom-in')?.addEventListener('click', () => applyZoom(previewZoom + 10), { signal });
+    el('btn-zoom-out')?.addEventListener('click', () => applyZoom(previewZoom - 10), { signal });
 
     // Copy
     el('btn-copy').addEventListener('click', async () => {
@@ -269,6 +324,7 @@ export default {
     el('btn-prettify').addEventListener('click', () => {
       if (!output.value) return;
       output.value = prettifyMarkdown(output.value);
+      store.set('currentMarkdown', output.value);
       updatePreview();
       toast('Prettified');
     }, { signal });
@@ -311,25 +367,33 @@ export default {
       if (currentHtml) { flavorCache.clear(); output.value = convert(currentHtml); updatePreview(); }
     }, { signal });
 
-    // Mobile paste button
+    // Mobile paste button — reads clipboard via API
     el('btn-mobile-paste')?.addEventListener('click', async () => {
-      if (navigator.clipboard?.read) {
-        try {
+      try {
+        if (navigator.clipboard?.read) {
           const items = await navigator.clipboard.read();
           for (const item of items) {
             if (item.types.includes('text/html')) {
               const blob = await item.getType('text/html');
-              processHtml(await blob.text());
-              return;
+              processHtml(await blob.text()); return;
+            }
+            if (item.types.includes('text/plain')) {
+              const blob = await item.getType('text/plain');
+              processHtml(await blob.text()); return;
             }
           }
-        } catch {}
+        } else if (navigator.clipboard?.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text) processHtml(text);
+        }
+      } catch {
+        showEmptyWarning();
       }
-      pastebin.focus();
     }, { signal });
 
     // Init
     applySplit(splitMode);
+    applyZoom(previewZoom);
     container.querySelectorAll('.flavor-btn').forEach(b => {
       b.classList.toggle('active', b.dataset.flavor === currentFlavor);
     });
@@ -346,6 +410,8 @@ export default {
     ctrl?.abort();
     ctrl = null;
     converters = {};
+    convertersReady = false;
+    pendingHtml = null;
     flavorCache.clear();
     currentHtml = '';
     historyOpen = false;
@@ -370,7 +436,7 @@ function TEMPLATE(flavor, splitMode) {
   <!-- Header -->
   <div class="tool-header">
     <button class="menu-btn" aria-label="Open menu"><svg class="icon"><use href="#icon-menu"/></svg></button>
-    <button class="btn btn-ghost btn-sm" id="btn-brand" style="font-weight:600;padding:0 var(--sp-2)">clipboard2markdown</button>
+    <button class="btn btn-ghost btn-sm" id="btn-brand" style="font-weight:600;padding:0 var(--sp-2)">Paste to Markdown</button>
     <span class="tool-desc text-muted" style="font-size:var(--text-xs)">Paste rich text → Markdown</span>
     <div class="header-spacer"></div>
     <div class="tool-actions">
@@ -397,7 +463,7 @@ function TEMPLATE(flavor, splitMode) {
   </div>
 
   <!-- Landing -->
-  <div id="landing" class="empty-state" style="flex:1">
+  <div id="landing" class="empty-state">
     <svg class="empty-icon" width="64" height="64"><use href="#icon-paste"/></svg>
     <h3>Paste rich text to convert</h3>
     <p>Copy anything from the web — docs, articles, tables — then paste it here.</p>
@@ -405,13 +471,18 @@ function TEMPLATE(flavor, splitMode) {
       <kbd>Ctrl+V</kbd> <span class="text-muted">or</span> <kbd>⌘V</kbd>
       <span class="text-muted text-xs">anywhere in this window</span>
     </div>
+    <p id="landing-msg" class="text-sm text-muted" style="min-height:1.2em"></p>
+    <div id="paste-warning" class="d-none" style="margin-top:var(--sp-3);padding:var(--sp-2) var(--sp-4);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:var(--r-md);color:var(--warning);font-size:var(--text-sm)">
+      Nothing in clipboard — copy some rich text first.
+    </div>
     <button class="btn btn-primary d-md-none mt-4" id="btn-mobile-paste">Paste from Clipboard</button>
     <div class="divider" style="width:80%;max-width:320px;margin:var(--sp-4) auto"></div>
     <p class="text-xs text-muted">Or drop an <strong>.html</strong> file anywhere</p>
   </div>
 
-  <!-- App body -->
-  <div id="app-body" class="tool-body d-none ${splitClass}" style="position:relative">
+  <!-- App body: flex column wrapper — hides on landing, shows editor+status together -->
+  <div id="app-body" class="d-none">
+  <div class="tool-body ${splitClass}">
     <!-- Editor panel -->
     <div class="panel panel-editor">
       <div class="panel-header">
@@ -436,8 +507,13 @@ function TEMPLATE(flavor, splitMode) {
     <div class="panel panel-preview">
       <div class="panel-header">
         <span class="panel-label">Preview</span>
+        <div style="display:flex;align-items:center;gap:var(--sp-1);margin-left:auto">
+          <button class="btn btn-ghost btn-sm btn-icon" id="btn-zoom-out" title="Decrease text size" aria-label="Zoom out" style="font-size:11px;font-weight:600">A−</button>
+          <span id="preview-zoom-label" style="font-size:var(--text-xs);color:var(--text-muted);min-width:34px;text-align:center">100%</span>
+          <button class="btn btn-ghost btn-sm btn-icon" id="btn-zoom-in" title="Increase text size" aria-label="Zoom in" style="font-size:13px;font-weight:600">A+</button>
+        </div>
       </div>
-      <div class="panel-body">
+      <div class="panel-body scrollable">
         <div class="preview-pane">
           <article id="md-preview" class="markdown-body" aria-live="polite" aria-label="Markdown preview"></article>
         </div>
@@ -457,18 +533,13 @@ function TEMPLATE(flavor, splitMode) {
       </div>
       <div class="history-list" id="history-list"></div>
     </div>
-  </div>
-
-  <!-- Status bar -->
+  </div><!-- end tool-body split -->
+  <!-- Status bar hidden with app-body — not visible on landing -->
   <div class="status-bar">
     <span id="status-words">0 words</span>
     <span id="status-chars">0 chars</span>
-    <span style="flex:1"></span>
-    <a href="https://markdownlivepreview.com/" target="_blank" rel="noopener noreferrer" class="text-xs text-muted" style="text-decoration:none">Open in Live Preview ↗</a>
   </div>
+  </div><!-- end app-body wrapper -->
 
-  <!-- Hidden paste target -->
-  <div id="pastebin" contenteditable="true" tabindex="-1" aria-hidden="true"
-       style="position:fixed;left:-9999px;width:1px;height:1px;overflow:hidden;opacity:0"></div>
 </div>`;
 }

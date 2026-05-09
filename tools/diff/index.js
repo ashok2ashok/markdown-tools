@@ -1,4 +1,5 @@
 import { diffLines, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
+import { store } from '../../shared/store.js';
 
 let ctrl = null;
 
@@ -125,6 +126,13 @@ export default {
 
     const schedDiff = debounce(computeDiff, 300);
 
+    // Auto-populate panel A from shared markdown state
+    const shared = store.get('currentMarkdown', '');
+    if (shared && !el('#diff-a').value) {
+      el('#diff-a').value = shared;
+      computeDiff();
+    }
+
     el('#diff-a').addEventListener('input', schedDiff, { signal });
     el('#diff-b').addEventListener('input', schedDiff, { signal });
 
@@ -203,23 +211,26 @@ function TEMPLATE() { return `
       <button class="btn btn-primary btn-sm" id="btn-diff-copy"><svg class="icon"><use href="#icon-copy"/></svg> Copy Patch</button>
     </div>
   </div>
-  <div class="tool-body flex-col" style="min-height:0">
-    <!-- Input row -->
-    <div class="split-2" style="height:220px;flex-shrink:0;border-bottom:1px solid var(--border)">
-      <div class="panel panel-editor" style="display:flex;flex-direction:column">
+  <div class="tool-body flex-col">
+    <!-- Input row — flex:1 split of top half -->
+    <div class="split-2 fill">
+      <div class="panel panel-editor">
         <div class="panel-header"><span class="panel-label">Original</span></div>
-        <textarea id="diff-a" class="code-editor" style="flex:1" spellcheck="false" placeholder="Paste original text…" aria-label="Original text"></textarea>
+        <textarea id="diff-a" class="code-editor" spellcheck="false" placeholder="Paste original text…" aria-label="Original text"></textarea>
       </div>
-      <div class="panel panel-preview" style="display:flex;flex-direction:column">
+      <div class="split-handle" data-dir="h"></div>
+      <div class="panel panel-preview">
         <div class="panel-header">
           <span class="panel-label">Modified</span>
           <span class="text-xs text-muted" id="diff-stats" style="margin-left:auto"></span>
         </div>
-        <textarea id="diff-b" class="code-editor" style="flex:1" spellcheck="false" placeholder="Paste modified text…" aria-label="Modified text"></textarea>
+        <textarea id="diff-b" class="code-editor" spellcheck="false" placeholder="Paste modified text…" aria-label="Modified text"></textarea>
       </div>
     </div>
+    <!-- Vertical handle between inputs and diff output -->
+    <div class="split-handle" data-dir="v"></div>
     <!-- Diff output -->
-    <div id="diff-output" class="scroll-region" style="flex:1;overflow:auto;background:var(--surface)">
+    <div id="diff-output" class="scroll-region">
       <p class="empty-state text-muted text-sm" style="padding:var(--sp-6)">Paste text in both panels to compare.</p>
     </div>
   </div>

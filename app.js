@@ -10,6 +10,7 @@ const TOOLS = new Map([
   ['frontmatter', () => import('./tools/frontmatter/index.js')],
   ['diff',        () => import('./tools/diff/index.js')],
   ['links',       () => import('./tools/links/index.js')],
+  ['plugins',     () => import('./tools/plugins/index.js')],
 ]);
 
 const appLayout    = document.getElementById('appLayout');
@@ -25,9 +26,9 @@ let currentTool = null;
 let currentId   = null;
 
 // ── Router ──
-async function navigate(id) {
+async function navigate(id, { force = false } = {}) {
   if (!TOOLS.has(id)) id = 'paste';
-  if (id === currentId) return;
+  if (id === currentId && !force) return;
 
   // Unmount current
   if (currentTool?.unmount) currentTool.unmount();
@@ -79,6 +80,14 @@ function getRouteId() {
 
 window.addEventListener('hashchange', () => navigate(getRouteId()));
 
+// Brand link: if already on paste, show landing without re-navigating
+document.querySelector('.brand-link')?.addEventListener('click', e => {
+  if (currentId === 'paste') {
+    e.preventDefault();
+    document.dispatchEvent(new CustomEvent('mdtools:showLanding'));
+  }
+});
+
 // ── Sidebar ──
 function applyCollapsed(collapsed) {
   appLayout.classList.toggle('collapsed', collapsed);
@@ -128,6 +137,45 @@ themeToggle.addEventListener('click', () => {
 
 window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change', e => {
   if (store.get('theme') == null) applyTheme(null);
+});
+
+// ── Drag-to-resize split handles (event-delegated from toolRoot) ──
+toolRoot.addEventListener('mousedown', e => {
+  const handle = e.target.closest('.split-handle');
+  if (!handle) return;
+  e.preventDefault();
+
+  const parent = handle.parentElement;
+  const isRow = handle.dataset.dir === 'h';
+  const prev = handle.previousElementSibling;
+  const next = handle.nextElementSibling;
+  if (!prev || !next) return;
+
+  const parentRect = parent.getBoundingClientRect();
+  handle.classList.add('dragging');
+  document.body.style.cursor = isRow ? 'col-resize' : 'row-resize';
+  document.body.style.userSelect = 'none';
+
+  const onMove = mv => {
+    const size = isRow ? parentRect.width : parentRect.height;
+    const pos  = isRow ? mv.clientX - parentRect.left : mv.clientY - parentRect.top;
+    const pct  = Math.max(10, Math.min(90, (pos / size) * 100));
+    prev.style.flex = `0 0 ${pct}%`;
+    next.style.flex = '1 1 0';
+    next.style.minWidth = '0';
+    next.style.minHeight = '0';
+  };
+
+  const onUp = () => {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    handle.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  };
+
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
 });
 
 // ── Init ──

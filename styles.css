@@ -45,9 +45,10 @@
 }
 
 /* ── Base ── */
-html{height:100%;-webkit-text-size-adjust:100%}
+html,body{height:100%;margin:0;padding:0;overflow:hidden}
+html{-webkit-text-size-adjust:100%}
 body{
-  height:100%;font-family:var(--font-sans);font-size:var(--text-base);
+  font-family:var(--font-sans);font-size:var(--text-base);
   line-height:1.6;color:var(--text);background:var(--bg);
   overflow:hidden;-webkit-font-smoothing:antialiased;
 }
@@ -56,7 +57,10 @@ body{
 .app-layout{
   display:grid;
   grid-template-columns:var(--sb-w) 1fr;
+  grid-template-rows:100vh;
   grid-template-rows:100dvh;
+  position:fixed;
+  inset:0;
   overflow:hidden;
   transition:grid-template-columns var(--sb-dur);
 }
@@ -178,7 +182,7 @@ body{
 }
 
 /* ── Main ── */
-.tool-root{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);min-width:0}
+.tool-root{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);min-width:0;min-height:0}
 
 /* Loading */
 .tool-loading{display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted);flex-direction:column;gap:var(--sp-4)}
@@ -189,7 +193,7 @@ body{
 @keyframes tool-enter{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
 
 /* ── Tool shell ── */
-.tool-shell{display:flex;flex-direction:column;height:100%;animation:tool-enter var(--dur-slow) var(--ease-out) both;position:relative}
+.tool-shell{display:flex;flex-direction:column;height:100%;overflow:hidden;animation:tool-enter var(--dur-slow) var(--ease-out) both;position:relative}
 
 .tool-header{
   display:flex;align-items:center;gap:var(--sp-3);
@@ -208,7 +212,10 @@ body{
 .tool-desc{font-size:var(--text-sm);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .header-spacer{flex:1}
 .tool-actions{display:flex;align-items:center;gap:var(--sp-2);flex-shrink:0}
-.tool-body{flex:1;display:flex;overflow:hidden;min-height:0}
+.tool-body{flex:1;display:flex;overflow:hidden;min-height:0;position:relative}
+/* app-body: paste tool flex wrapper — must live in CSS, not inline, because CSP
+   (style-src without 'unsafe-inline') blocks style= attributes */
+#app-body{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 
 /* ── Buttons ── */
 .btn{
@@ -251,7 +258,7 @@ body{
 .checkbox-wrap input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
 
 /* ── Panels ── */
-.panel{display:flex;flex-direction:column;overflow:hidden;border-right:1px solid var(--border)}
+.panel{display:flex;flex-direction:column;overflow:hidden;min-height:0;border-right:1px solid var(--border)}
 .panel:last-child{border-right:none}
 .panel-header{
   display:flex;align-items:center;gap:var(--sp-2);
@@ -259,26 +266,34 @@ body{
   border-bottom:1px solid var(--border);flex-shrink:0;min-height:36px;
 }
 .panel-label{font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);flex:1}
-.panel-body{flex:1;overflow:auto;position:relative}
+.panel-body{flex:1;overflow:hidden;min-height:0;position:relative}
+.panel-body.scrollable{overflow-y:auto;overscroll-behavior:contain}
 
-/* Code editor textarea */
+/* Code editor textarea — flex:1 fills remaining space in any flex-column panel */
 .code-editor{
-  width:100%;height:100%;resize:none;border:none;outline:none;
+  width:100%;flex:1;min-height:0;resize:none;border:none;outline:none;
   background:var(--surface);color:var(--text);
   font-family:var(--font-mono);font-size:var(--text-sm);line-height:1.65;
   padding:var(--sp-4);display:block;
+  overflow-y:auto;overscroll-behavior:contain;
 }
 
 /* Preview */
-.preview-pane{padding:var(--sp-6) var(--sp-8);overflow-y:auto;height:100%}
+.preview-pane{padding:var(--sp-6) var(--sp-8)}
 .markdown-body{background:transparent!important}
 .markdown-body pre{background:var(--surface-2)!important}
 
-/* Splits */
-.split-2{display:grid;grid-template-columns:1fr 1fr}
-.split-left{display:grid;grid-template-columns:1fr}
-.split-right{display:grid;grid-template-columns:1fr}
+/* Splits — use flex so height propagates correctly in Safari (grid fr rows don't
+   resolve when container height comes from flex:1, breaking overflow/scroll) */
+.split-2,.split-left,.split-right{display:flex}
+.split-2 .panel,.split-left .panel,.split-right .panel{flex:1;min-width:0;min-height:0}
 .split-left .panel-preview,.split-right .panel-editor{display:none}
+
+/* Draggable split handles */
+.split-handle{background:var(--border);flex-shrink:0;transition:background 100ms;position:relative;z-index:2}
+.split-handle:hover,.split-handle.dragging{background:var(--accent)}
+.split-handle[data-dir=h]{width:4px;cursor:col-resize;min-width:4px}
+.split-handle[data-dir=v]{height:4px;cursor:row-resize;min-height:4px;align-self:stretch}
 
 /* Status bar */
 .status-bar{
@@ -436,11 +451,14 @@ body{
 .fm-row .fm-type{width:88px;flex-shrink:0}
 
 /* Links table */
-.links-table{width:100%;border-collapse:collapse;font-size:var(--text-sm)}
-.links-table th{text-align:left;padding:var(--sp-2) var(--sp-3);background:var(--surface-2);font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:1}
-.links-table td{padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border);vertical-align:top}
-.links-table tr:hover td{background:var(--surface-2)}
-.link-url{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--accent);word-break:break-all}
+.links-table{width:100%;border-collapse:collapse;font-size:var(--text-sm);table-layout:fixed}
+.links-table th{text-align:left;padding:var(--sp-2) var(--sp-3);background:var(--surface-2);font-size:var(--text-xs);font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);border-bottom:2px solid var(--border);border-right:1px solid var(--border);position:sticky;top:0;z-index:1}
+.links-table th:last-child{border-right:none}
+.links-table td{padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--border);border-right:1px solid var(--border);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.links-table td:last-child{border-right:none}
+.links-table tr:hover td{background:var(--accent-subtle)}
+.link-url{color:var(--accent);word-break:break-all;text-decoration:none;font-family:var(--font-mono);font-size:var(--text-xs)}
+.link-url:hover{text-decoration:underline}
 
 /* Front matter */
 .fm-fields{display:flex;flex-direction:column;gap:0}
@@ -452,7 +470,7 @@ body{
 .fm-pill-del:hover{opacity:1}
 
 /* Scroll region */
-.scroll-region{overflow:auto;flex:1}
+.scroll-region{overflow:auto;flex:1;overscroll-behavior:contain;min-height:0}
 
 /* Responsive */
 @media(max-width:768px){
@@ -472,10 +490,15 @@ body{
 /* Utils */
 .d-none{display:none!important}
 .flex{display:flex}.flex-col{display:flex;flex-direction:column}
+.fill{flex:1;min-height:0}
+/* Toolbar/options bar between tool-header and tool-body */
+.tool-bar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-3);padding:var(--sp-2) var(--sp-4);border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0}
+/* Lint/status strip inside tool body */
+.lint-bar{display:flex;align-items:center;flex-wrap:wrap;gap:var(--sp-1);padding:var(--sp-2) var(--sp-4);border-bottom:1px solid var(--border);min-height:32px;background:var(--surface);flex-shrink:0}
 .items-center{align-items:center}.justify-between{justify-content:space-between}
 .gap-2{gap:var(--sp-2)}.gap-3{gap:var(--sp-3)}.gap-4{gap:var(--sp-4)}
 .flex-1{flex:1;min-width:0}.w-full{width:100%}.h-full{height:100%}
-.overflow-auto{overflow:auto}.text-muted{color:var(--text-muted)}.text-xs{font-size:var(--text-xs)}
+.overflow-auto{overflow:auto;overscroll-behavior:contain}.text-muted{color:var(--text-muted)}.text-xs{font-size:var(--text-xs)}
 .font-mono{font-family:var(--font-mono)}.font-semibold{font-weight:600}
 .p-4{padding:var(--sp-4)}.mt-2{margin-top:var(--sp-2)}.mt-4{margin-top:var(--sp-4)}
 .text-center{text-align:center}

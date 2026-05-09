@@ -1,4 +1,5 @@
 import { extractLinks, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
+import { store } from '../../shared/store.js';
 
 let ctrl = null;
 
@@ -35,15 +36,15 @@ export default {
 
       tbody.innerHTML = filtered.map((link, i) => {
         const typeLabel = { inline: 'Inline', ref: 'Reference', image: 'Image' }[link.type] || link.type;
-        const typeBadge = `<span class="badge" style="background:${typeBg(link.type)};color:#fff">${typeLabel}</span>`;
+        const typeBadge = `<span class="badge" style="background:${typeBg(link.type)};color:#fff;white-space:nowrap">${typeLabel}</span>`;
         const urlDisplay = link.url
-          ? `<a href="${escAttr(link.url)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary);word-break:break-all" title="${escAttr(link.url)}">${esc(truncate(link.url, 60))}</a>`
-          : `<span class="text-muted">[${esc(link.ref || '')}]</span>`;
+          ? `<a href="${escAttr(link.url)}" target="_blank" rel="noopener noreferrer" class="link-url" title="${escAttr(link.url)}">${esc(truncate(link.url, 70))}</a>`
+          : `<span class="text-muted text-xs">[${esc(link.ref || '')}]</span>`;
         return `<tr>
-          <td style="padding:var(--sp-2) var(--sp-3)">${typeBadge}</td>
-          <td style="padding:var(--sp-2) var(--sp-3);color:var(--text)">${esc(link.text || link.alt || '')}</td>
-          <td style="padding:var(--sp-2) var(--sp-3);font-size:var(--text-sm)">${urlDisplay}</td>
-          <td style="padding:var(--sp-2) var(--sp-3)">
+          <td>${typeBadge}</td>
+          <td class="text-sm">${esc(link.text || link.alt || '')}</td>
+          <td class="text-sm">${urlDisplay}</td>
+          <td>
             <button class="btn btn-ghost btn-sm" data-idx="${i}" data-action="copy-url" title="Copy URL">
               <svg class="icon"><use href="#icon-copy"/></svg>
             </button>
@@ -83,8 +84,18 @@ export default {
       downloadFile('links.md', lines.join('\n'));
     }
 
+    // Auto-populate from shared markdown state
+    const shared = store.get('currentMarkdown', '');
+    if (shared && !el('#links-input').value) {
+      el('#links-input').value = shared;
+      extract();
+    }
+
     const schedExtract = debounce(extract, 300);
-    el('#links-input').addEventListener('input', schedExtract, { signal });
+    el('#links-input').addEventListener('input', e => {
+      store.set('currentMarkdown', e.target.value);
+      schedExtract();
+    }, { signal });
 
     // Filter tabs
     container.querySelectorAll('.link-filter-btn').forEach(btn => {
@@ -98,9 +109,13 @@ export default {
     el('#btn-links-copy').addEventListener('click', async () => {
       const filtered = filter === 'all' ? allLinks : allLinks.filter(l => l.type === filter);
       const text = filtered.map(l => l.url || l.ref || '').filter(Boolean).join('\n');
-      if (!text) return;
+      if (!text) { toast('No URLs to copy'); return; }
       await copyText(text);
-      toast('URLs copied!');
+      const btn = el('#btn-links-copy');
+      const orig = btn.textContent;
+      btn.textContent = 'Copied!';
+      btn.classList.add('btn-copied');
+      setTimeout(() => { btn.textContent = orig; btn.classList.remove('btn-copied'); }, 1500);
     }, { signal });
 
     el('#btn-links-csv').addEventListener('click', exportCsv, { signal });
@@ -147,15 +162,15 @@ function TEMPLATE() { return `
       <button class="btn btn-primary btn-sm" id="btn-links-copy"><svg class="icon"><use href="#icon-copy"/></svg> Copy URLs</button>
     </div>
   </div>
-  <div class="tool-body flex-col" style="min-height:0">
+  <div class="tool-body flex-col">
     <!-- Input -->
-    <div class="panel panel-editor" style="flex-shrink:0;border-bottom:1px solid var(--border)">
+    <div class="panel panel-editor" style="flex-shrink:0;border-bottom:2px solid var(--border-strong)">
       <div class="panel-header"><span class="panel-label">Markdown Source</span></div>
-      <textarea id="links-input" class="code-editor" style="height:180px" spellcheck="false"
+      <textarea id="links-input" class="code-editor" style="flex:none;height:180px" spellcheck="false"
         placeholder="Paste markdown with links…&#10;&#10;[Example](https://example.com)&#10;![Image](img.png)&#10;[Ref link][ref]&#10;&#10;[ref]: https://example.com" aria-label="Markdown source"></textarea>
     </div>
     <!-- Filter + Table -->
-    <div style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-4);border-bottom:1px solid var(--border);background:var(--surface-2);flex-shrink:0">
+    <div class="tool-bar">
       <span class="label" style="margin:0">Filter:</span>
       <div class="seg-ctrl">
         <button class="seg-btn link-filter-btn active" data-filter="all">All</button>
@@ -164,14 +179,14 @@ function TEMPLATE() { return `
         <button class="seg-btn link-filter-btn" data-filter="image">Image</button>
       </div>
     </div>
-    <div class="scroll-region" style="flex:1;overflow:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:var(--text-sm)">
-        <thead style="position:sticky;top:0;background:var(--surface-2);z-index:1">
-          <tr style="border-bottom:2px solid var(--border)">
-            <th style="padding:var(--sp-2) var(--sp-3);text-align:left;font-weight:600;color:var(--text-muted);width:90px">Type</th>
-            <th style="padding:var(--sp-2) var(--sp-3);text-align:left;font-weight:600;color:var(--text-muted)">Text / Alt</th>
-            <th style="padding:var(--sp-2) var(--sp-3);text-align:left;font-weight:600;color:var(--text-muted)">URL / Ref</th>
-            <th style="padding:var(--sp-2) var(--sp-3);width:40px"></th>
+    <div class="scroll-region">
+      <table class="links-table" style="width:100%">
+        <thead>
+          <tr>
+            <th style="width:90px">Type</th>
+            <th>Text / Alt</th>
+            <th>URL / Ref</th>
+            <th style="width:40px"></th>
           </tr>
         </thead>
         <tbody id="links-tbody">

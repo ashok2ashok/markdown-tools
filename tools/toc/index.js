@@ -1,4 +1,5 @@
 import { extractHeadings, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
+import { store } from '../../shared/store.js';
 
 let ctrl = null;
 
@@ -17,7 +18,6 @@ export default {
       const minDepth = +el('#toc-min').value || 1;
       const maxDepth = +el('#toc-max').value || 6;
       const indent   = el('#toc-indent').value === 'tab' ? '\t' : '  ';
-      const style    = el('#toc-style').value; // 'dash' | 'number' | 'star'
       const links    = el('#toc-links').checked;
       const numbered = el('#toc-numbered').checked;
 
@@ -60,8 +60,18 @@ export default {
 
     const schedGen = debounce(generate, 300);
 
-    el('#toc-input').addEventListener('input', schedGen, { signal });
-    ['#toc-min','#toc-max','#toc-indent','#toc-style'].forEach(s => {
+    // Auto-populate from shared markdown state
+    const shared = store.get('currentMarkdown', '');
+    if (shared && !el('#toc-input').value) {
+      el('#toc-input').value = shared;
+      generate();
+    }
+
+    el('#toc-input').addEventListener('input', e => {
+      store.set('currentMarkdown', e.target.value);
+      schedGen();
+    }, { signal });
+    ['#toc-min','#toc-max','#toc-indent'].forEach(s => {
       el(s)?.addEventListener('change', generate, { signal });
     });
     ['#toc-links','#toc-numbered'].forEach(s => {
@@ -122,41 +132,40 @@ function TEMPLATE() { return `
       <button class="btn btn-primary btn-sm" id="btn-copy-toc"><svg class="icon"><use href="#icon-copy"/></svg> Copy</button>
     </div>
   </div>
+  <!-- Options bar — full width, above the split -->
+  <div class="tool-bar">
+    <span class="panel-label" style="flex:none">Depth</span>
+    <select id="toc-min" class="select" style="width:60px" aria-label="Min heading level">
+      <option value="1" selected>H1</option><option value="2">H2</option><option value="3">H3</option>
+    </select>
+    <span class="text-muted text-xs">–</span>
+    <select id="toc-max" class="select" style="width:60px" aria-label="Max heading level">
+      <option value="3">H3</option><option value="4">H4</option><option value="5">H5</option><option value="6" selected>H6</option>
+    </select>
+    <div style="width:1px;height:16px;background:var(--border);margin:0 var(--sp-1)"></div>
+    <label class="checkbox-wrap"><input type="checkbox" id="toc-links" checked> Links</label>
+    <label class="checkbox-wrap"><input type="checkbox" id="toc-numbered"> Numbered</label>
+    <div style="width:1px;height:16px;background:var(--border);margin:0 var(--sp-1)"></div>
+    <span class="panel-label" style="flex:none">Indent</span>
+    <select id="toc-indent" class="select" style="width:80px" aria-label="Indent style">
+      <option value="spaces">Spaces</option><option value="tab">Tab</option>
+    </select>
+  </div>
   <div class="tool-body split-2">
     <!-- Input -->
     <div class="panel panel-editor">
-      <div class="panel-header">
-        <span class="panel-label">Markdown Source</span>
-      </div>
-      <div class="panel-body" style="display:flex;flex-direction:column">
-        <!-- Options bar -->
-        <div style="display:flex;flex-wrap:wrap;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--border);background:var(--surface-2);align-items:center;flex-shrink:0">
-          <label class="label" style="margin:0">Depth:</label>
-          <select id="toc-min" class="select" style="width:60px" aria-label="Min heading level">
-            <option value="1">H1</option><option value="2" selected>H2</option><option value="3">H3</option>
-          </select>
-          <span class="text-muted text-xs">–</span>
-          <select id="toc-max" class="select" style="width:60px" aria-label="Max heading level">
-            <option value="3">H3</option><option value="4">H4</option><option value="5">H5</option><option value="6" selected>H6</option>
-          </select>
-          <label class="checkbox-wrap"><input type="checkbox" id="toc-links" checked> Links</label>
-          <label class="checkbox-wrap"><input type="checkbox" id="toc-numbered"> Numbered</label>
-          <select id="toc-indent" class="select" style="width:80px" aria-label="Indent style">
-            <option value="spaces">Spaces</option><option value="tab">Tab</option>
-          </select>
-        </div>
-        <textarea id="toc-input" class="code-editor" style="flex:1" spellcheck="false" placeholder="Paste your markdown here…" aria-label="Markdown source"></textarea>
-      </div>
+      <div class="panel-header"><span class="panel-label">Markdown Source</span></div>
+      <textarea id="toc-input" class="code-editor" spellcheck="false" placeholder="Paste your markdown here…" aria-label="Markdown source"></textarea>
     </div>
-    <!-- Output -->
-    <div class="panel panel-preview" style="display:flex;flex-direction:column">
+    <!-- Horizontal handle -->
+    <div class="split-handle" data-dir="h"></div>
+    <!-- Output — vertical split: TOC text on top, visual preview below -->
+    <div class="panel panel-preview">
       <div class="panel-header"><span class="panel-label">Generated TOC</span></div>
-      <textarea id="toc-output" class="code-editor" style="flex:1" spellcheck="false" readonly aria-label="Generated table of contents"></textarea>
-      <div style="border-top:1px solid var(--border);padding:var(--sp-3) var(--sp-4);background:var(--surface-2)">
-        <div class="label">Preview</div>
-        <div id="toc-preview" style="max-height:180px;overflow-y:auto;padding:var(--sp-2) 0">
-          <p class="text-muted text-xs">TOC will appear here</p>
-        </div>
+      <textarea id="toc-output" class="code-editor" spellcheck="false" readonly aria-label="Generated table of contents"></textarea>
+      <div class="split-handle" data-dir="v"></div>
+      <div id="toc-preview" class="scroll-region" style="padding:var(--sp-3) var(--sp-4)">
+        <p class="text-muted text-xs">TOC will appear here</p>
       </div>
     </div>
   </div>

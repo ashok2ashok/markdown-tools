@@ -1,4 +1,4 @@
-# clipboard2markdown
+# Markdown Tools
 
 > Paste richly formatted text — get clean Markdown instantly.
 

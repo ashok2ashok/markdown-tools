@@ -1,4 +1,5 @@
 import { parseFrontMatter, serializeFrontMatter, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
+import { store } from '../../shared/store.js';
 
 let ctrl = null;
 
@@ -16,7 +17,7 @@ export default {
 
     function parse() {
       const src = el('#fm-input').value;
-      const { data, content } = parseFrontMatter(src);
+      const { data, body: content } = parseFrontMatter(src);
       el('#fm-content').value = content.trimStart();
       fields = Object.entries(data).map(([key, value]) => ({
         key,
@@ -148,6 +149,13 @@ export default {
 
     const schedRender = debounce(renderOutput, 150);
 
+    // Auto-populate from shared markdown state
+    const shared = store.get('currentMarkdown', '');
+    if (shared && !el('#fm-input').value) {
+      el('#fm-input').value = shared;
+      parse();
+    }
+
     el('#btn-fm-add').addEventListener('click', () => {
       fields.push({ key: '', value: '', type: 'string' });
       renderFields();
@@ -155,7 +163,10 @@ export default {
 
     el('#fm-content').addEventListener('input', schedRender, { signal });
 
-    el('#fm-input').addEventListener('input', debounce(parse, 300), { signal });
+    el('#fm-input').addEventListener('input', debounce(e => {
+      store.set('currentMarkdown', e.target.value);
+      parse();
+    }, 300), { signal });
 
     el('#btn-fm-parse').addEventListener('click', parse, { signal });
 
@@ -204,7 +215,7 @@ function TEMPLATE() { return `
         <span class="panel-label">Source Markdown</span>
         <button class="btn btn-secondary btn-sm" id="btn-fm-parse" style="margin-left:auto">Parse</button>
       </div>
-      <textarea id="fm-input" class="code-editor" style="height:160px;flex-shrink:0" spellcheck="false"
+      <textarea id="fm-input" class="code-editor" style="flex:none;height:160px" spellcheck="false"
         placeholder="---&#10;title: My Post&#10;date: 2024-01-01&#10;tags: [markdown, tools]&#10;draft: false&#10;---&#10;&#10;Content here…" aria-label="Source markdown with front matter"></textarea>
       <div style="border-top:1px solid var(--border);padding:var(--sp-3) var(--sp-4);background:var(--surface-2);flex-shrink:0;display:flex;align-items:center;gap:var(--sp-3)">
         <span class="label" style="margin:0">Fields</span>
@@ -215,7 +226,7 @@ function TEMPLATE() { return `
     <!-- Right: body editor + output -->
     <div class="panel panel-preview" style="display:flex;flex-direction:column;min-height:0">
       <div class="panel-header"><span class="panel-label">Document Body</span></div>
-      <textarea id="fm-content" class="code-editor" style="height:160px;flex-shrink:0" spellcheck="false"
+      <textarea id="fm-content" class="code-editor" style="flex:none;height:160px" spellcheck="false"
         placeholder="Markdown content (without front matter)…" aria-label="Document body"></textarea>
       <div style="border-top:1px solid var(--border);padding:var(--sp-3) var(--sp-4);background:var(--surface-2);flex-shrink:0">
         <span class="panel-label">Output</span>

@@ -21,9 +21,22 @@ export default {
 
     const el = s => container.querySelector(s);
 
+    let syncingFromGrid = false;
+
     function syncOutput() {
       const out = el('#tbl-output');
-      if (out) out.value = rowsToMarkdown(rows, alignments);
+      if (out) { syncingFromGrid = true; out.value = rowsToMarkdown(rows, alignments); syncingFromGrid = false; }
+    }
+
+    function syncFromMarkdown(md) {
+      if (syncingFromGrid) return;
+      const parsed = parsePipeTable(md);
+      if (!parsed.length) return;
+      rows = parsed;
+      cols = Math.max(...parsed.map(r => r.length));
+      rows = rows.map(r => { while (r.length < cols) r.push(''); return r; });
+      alignments = Array(cols).fill('left');
+      buildGrid();
     }
 
     function buildGrid() {
@@ -153,6 +166,10 @@ export default {
       }
     }, { signal });
 
+    // Make output textarea editable — typing in it syncs back to grid
+    el('#tbl-output').removeAttribute('readonly');
+    el('#tbl-output').addEventListener('input', debounce(e => syncFromMarkdown(e.target.value), 400), { signal });
+
     buildGrid();
   },
 
@@ -217,7 +234,7 @@ function TEMPLATE() {
       <div class="panel-header">
         <span class="panel-label">Pipe Table Output</span>
       </div>
-      <textarea id="tbl-output" class="code-editor" style="height:120px;border-top:none" spellcheck="false" readonly aria-label="Generated pipe table"></textarea>
+      <textarea id="tbl-output" class="code-editor" style="height:120px;border-top:none" spellcheck="false" aria-label="Pipe table — edit directly or use grid above" placeholder="| Header 1 | Header 2 |&#10;| --- | --- |&#10;| Cell | Cell |"></textarea>
     </div>
   </div>
 </div>`;

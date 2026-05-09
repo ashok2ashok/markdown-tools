@@ -25,13 +25,19 @@ export default {
 
     function convert() {
       const input = el('#conv-input').value;
-      if (!input.trim()) { el('#conv-output').value = ''; updateStats(''); return; }
+      if (!input.trim()) {
+        el('#conv-output').value = '';
+        el('#conv-preview').innerHTML = '';
+        updateStats('');
+        return;
+      }
       try {
         if (direction === 'md-to-html') {
-          const html = typeof DOMPurify !== 'undefined'
-            ? DOMPurify.sanitize(marked.parse(input))
-            : marked.parse(input);
+          const raw = typeof marked !== 'undefined' ? marked.parse(input) : input;
+          const html = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(raw) : raw;
           el('#conv-output').value = formatHtml(html);
+          // Rendered preview
+          el('#conv-preview').innerHTML = html;
         } else {
           const td = buildConverter(flavor);
           const doc = parser.parseFromString(input, 'text/html');
@@ -63,14 +69,22 @@ export default {
       const isHtml = dir === 'md-to-html';
       el('#conv-dir-btn').textContent = isHtml ? 'MD → HTML' : 'HTML → MD';
       el('#conv-input-label').textContent  = isHtml ? 'Markdown' : 'HTML';
-      el('#conv-output-label').textContent = isHtml ? 'HTML' : 'Markdown';
+      el('#conv-output-label').textContent = isHtml ? 'HTML Source' : 'Markdown';
       el('#conv-input').placeholder = isHtml ? '# Hello World\n\nPaste **markdown** here…' : '<h1>Hello World</h1>\n<p>Paste <strong>HTML</strong> here…';
       el('#flavor-row').style.display = isHtml ? 'none' : '';
+      const previewSection = el('#conv-preview-row');
+      const previewHandle  = el('#conv-preview-handle');
+      if (previewSection) previewSection.style.display = isHtml ? '' : 'none';
+      if (previewHandle)  previewHandle.style.display  = isHtml ? '' : 'none';
+      el('#conv-preview').innerHTML = '';
       convert();
     }
 
     const schedConvert = debounce(convert, 300);
-    el('#conv-input').addEventListener('input', schedConvert, { signal });
+    el('#conv-input').addEventListener('input', e => {
+      if (direction === 'md-to-html') store.set('currentMarkdown', e.target.value);
+      schedConvert();
+    }, { signal });
 
     el('#conv-dir-btn').addEventListener('click', () => {
       // Swap input/output, flip direction
@@ -115,6 +129,8 @@ export default {
     // Init
     setDirection('md-to-html');
     container.querySelectorAll('.flavor-opt').forEach(b => b.classList.toggle('active', b.dataset.flavor === flavor));
+    const shared = store.get('currentMarkdown', '');
+    if (shared && !el('#conv-input').value) { el('#conv-input').value = shared; convert(); }
   },
 
   unmount() { ctrl?.abort(); ctrl = null; },
@@ -158,13 +174,19 @@ function TEMPLATE(flavor) {
       </div>
       <textarea id="conv-input" class="code-editor" spellcheck="false" placeholder="# Hello World&#10;&#10;Paste **markdown** here…" aria-label="Input"></textarea>
     </div>
-    <!-- Output -->
+    <!-- Horizontal handle -->
+    <div class="split-handle" data-dir="h"></div>
+    <!-- Output — vertical split: HTML source on top, rendered preview below -->
     <div class="panel panel-preview">
       <div class="panel-header">
-        <span class="panel-label" id="conv-output-label">HTML</span>
-        <span class="text-xs text-muted" id="conv-stats"></span>
+        <span class="panel-label" id="conv-output-label">HTML Source</span>
+        <span class="text-xs text-muted" id="conv-stats" style="margin-left:auto"></span>
       </div>
-      <textarea id="conv-output" class="code-editor" spellcheck="false" readonly aria-label="Output"></textarea>
+      <textarea id="conv-output" class="code-editor" spellcheck="false" readonly aria-label="HTML output"></textarea>
+      <div class="split-handle" id="conv-preview-handle" data-dir="v"></div>
+      <div id="conv-preview-row" class="scroll-region">
+        <article id="conv-preview" class="markdown-body preview-pane"></article>
+      </div>
     </div>
   </div>
 </div>`; }
