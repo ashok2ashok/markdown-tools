@@ -72,15 +72,42 @@ jobs:
           git tag "${{ steps.ver.outputs.tag }}"
           git push origin master --follow-tags
 
-      # ── 4. GitHub release with auto-generated notes ────────────────────
+      # ── 4. Build browser extension and package as zip ──────────────────
+      - name: Set up Node.js for extension build
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: extensions/package-lock.json
+
+      - name: Build browser extension
+        run: |
+          cd extensions
+          npm ci
+          node build.js
+
+      - name: Package extension zip
+        run: |
+          cd extensions/dist
+          zip -r ../../markdown-tools-extension-${{ steps.ver.outputs.tag }}.zip .
+          echo "Packaged $(find . -type f | wc -l) files into extension zip"
+
+      - name: Verify extension zip
+        run: |
+          unzip -l markdown-tools-extension-${{ steps.ver.outputs.tag }}.zip
+          # Ensure required files are present
+          unzip -p markdown-tools-extension-${{ steps.ver.outputs.tag }}.zip manifest.json | python3 -c "import sys,json; m=json.load(sys.stdin); assert m['manifest_version']==3, 'Bad manifest'; print('manifest_version:', m['manifest_version'], '✓'); print('name:', m['name'], '✓')"
+
+      # ── 5. GitHub release with auto-generated notes + extension asset ──
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name:              ${{ steps.ver.outputs.tag }}
-          name:                  ${{ steps.ver.outputs.tag }}
+          tag_name:               ${{ steps.ver.outputs.tag }}
+          name:                   ${{ steps.ver.outputs.tag }}
           generate_release_notes: true
+          files: markdown-tools-extension-${{ steps.ver.outputs.tag }}.zip
 
-      # ── 5. Package site files (exclude dev/meta files) ─────────────────
+      # ── 6. Package site files (exclude dev/meta files) ─────────────────
       - name: Prepare dist
         run: |
           mkdir dist
@@ -88,13 +115,13 @@ jobs:
              background.svg background-dark.svg dist/
           cp -r shared tools dist/
 
-      # ── 6. Upload Pages artifact ───────────────────────────────────────
+      # ── 7. Upload Pages artifact ───────────────────────────────────────
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
-      # ── 7. Deploy to GitHub Pages ──────────────────────────────────────
+      # ── 8. Deploy to GitHub Pages ──────────────────────────────────────
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
