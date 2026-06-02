@@ -1,5 +1,5 @@
 // Service worker - app-shell cache-first, network-fallback
-const VERSION = 'v10';
+const VERSION = 'v11';
 const CACHE = `mdtools-${VERSION}`;
 const SHELL = [
   './',
@@ -52,45 +52,20 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Same-origin: NETWORK-FIRST so updates propagate without stale-cache traps.
-  // Falls back to cache only on network failure (offline).
-  if (url.origin === location.origin) {
-    e.respondWith(
-      fetch(req).then(res => {
-        if (res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(req, clone));
-        }
-        return res;
-      }).catch(() => caches.match(req).then(hit => hit || new Response('Offline', { status: 503 })))
-    );
-    return;
-  }
+  // Only intercept SAME-ORIGIN requests. Cross-origin (CDNs) handled natively
+  // by browser - SW interception of CORS/integrity-checked requests has caused
+  // "Returned response is null" and "TypeError: Load failed" errors.
+  if (url.origin !== location.origin) return;
 
-  // Cross-origin CDNs (jsdelivr, esm.sh): stale-while-revalidate
-  // CRITICAL: always resolve to a real Response — respondWith with null/undefined
-  // throws "Returned response is null" and breaks the fetch entirely.
-  if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'esm.sh') {
-    e.respondWith((async () => {
-      const cached = await caches.match(req);
-      const fetchAndCache = fetch(req).then(res => {
-        if (res.ok) {
-          const clone = res.clone();
-          caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
-        }
-        return res;
-      });
-      if (cached) {
-        // Refresh in background; return cached immediately
-        fetchAndCache.catch(() => {});
-        return cached;
+  // Network-first: updates propagate without stale-cache traps.
+  // Cache fallback for offline.
+  e.respondWith(
+    fetch(req).then(res => {
+      if (res.ok) {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
       }
-      try {
-        return await fetchAndCache;
-      } catch (err) {
-        // Last resort — let browser try directly (don't intercept)
-        return fetch(req);
-      }
-    })());
-  }
+      return res;
+    }).catch(() => caches.match(req).then(hit => hit || new Response('Offline', { status: 503 })))
+  );
 });
