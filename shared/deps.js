@@ -24,8 +24,9 @@ const REGISTRY = {
     global: 'DOMPurify',
   },
   githubCss: {
+    // SRI omitted: jsdelivr edges have served differing bytes for this URL,
+    // causing intermittent integrity failures across CDN regions.
     url: 'https://cdn.jsdelivr.net/npm/github-markdown-css@5.8.1/github-markdown.min.css',
-    integrity: 'sha384-acjmOUKFwIvj661l8O5n72P4DhPiCxH1dSGiEOw9YjyaZ7+82SFXCGrJ9nLR+MfL',
     type: 'css',
   },
   // Font Awesome 4.7 - EasyMDE's bundled CSS @imports it from dead maxcdn URL;
