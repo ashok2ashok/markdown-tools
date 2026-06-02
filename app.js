@@ -1,8 +1,9 @@
 import { store } from './shared/store.js';
 
-// Tool registry — lazy loaded
+// Tool registry - lazy loaded
 const TOOLS = new Map([
   ['paste',       () => import('./tools/paste/index.js')],
+  ['editor',      () => import('./tools/editor/index.js')],
   ['tables',      () => import('./tools/tables/index.js')],
   ['toc',         () => import('./tools/toc/index.js')],
   ['convert',     () => import('./tools/convert/index.js')],
@@ -54,9 +55,11 @@ async function navigate(id, { force = false } = {}) {
     toolLoading.style.display = 'none';
     currentTool = tool;
     tool.mount(toolRoot);
+    applySavedSplits();
+    enrichHandles();
 
     store.set('lastTool', id);
-    document.title = (tool.title || 'Markdown Tools') + ' — Markdown Tools';
+    document.title = (tool.title || 'Markdown Tools') + ' - Markdown Tools';
   } catch (err) {
     console.error('[mdtools] Tool load failed:', err);
     toolLoading.style.display = 'none';
@@ -133,6 +136,7 @@ themeToggle.addEventListener('click', () => {
   const next = current === 'dark' ? 'light' : 'dark';
   store.set('theme', next);
   applyTheme(next);
+  themeToggle.setAttribute('aria-pressed', next === 'dark' ? 'true' : 'false');
 });
 
 window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change', e => {
@@ -140,6 +144,23 @@ window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change', e =>
 });
 
 // ── Drag-to-resize split handles (event-delegated from toolRoot) ──
+function applySavedSplits() {
+  const sizes = store.get('splitSizes', {});
+  for (const [key, pct] of Object.entries(sizes)) {
+    const [tool, idx] = key.split(':');
+    if (tool !== currentId) continue;
+    const handles = toolRoot.querySelectorAll('.split-handle');
+    const handle = handles[+idx];
+    const prev = handle?.previousElementSibling;
+    if (prev) prev.style.flex = `0 0 ${pct}%`;
+  }
+}
+
+function handleKey(handle) {
+  const handles = Array.from(toolRoot.querySelectorAll('.split-handle'));
+  return `${currentId}:${handles.indexOf(handle)}`;
+}
+
 toolRoot.addEventListener('mousedown', e => {
   const handle = e.target.closest('.split-handle');
   if (!handle) return;
@@ -156,10 +177,13 @@ toolRoot.addEventListener('mousedown', e => {
   document.body.style.cursor = isRow ? 'col-resize' : 'row-resize';
   document.body.style.userSelect = 'none';
 
+  let lastPct = null;
+
   const onMove = mv => {
     const size = isRow ? parentRect.width : parentRect.height;
     const pos  = isRow ? mv.clientX - parentRect.left : mv.clientY - parentRect.top;
     const pct  = Math.max(10, Math.min(90, (pos / size) * 100));
+    lastPct = pct;
     prev.style.flex = `0 0 ${pct}%`;
     next.style.flex = '1 1 0';
     next.style.minWidth = '0';
@@ -172,13 +196,86 @@ toolRoot.addEventListener('mousedown', e => {
     handle.classList.remove('dragging');
     document.body.style.cursor = '';
     document.body.style.userSelect = '';
+    if (lastPct !== null) {
+      const sizes = { ...store.get('splitSizes', {}) };
+      sizes[handleKey(handle)] = +lastPct.toFixed(2);
+      store.set('splitSizes', sizes);
+    }
   };
 
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
 });
 
+// Keyboard support for split handles: focus + arrow keys adjust by 5%
+toolRoot.addEventListener('keydown', e => {
+  const handle = e.target.closest?.('.split-handle');
+  if (!handle) return;
+  const isRow = handle.dataset.dir === 'h';
+  const decKey = isRow ? 'ArrowLeft' : 'ArrowUp';
+  const incKey = isRow ? 'ArrowRight' : 'ArrowDown';
+  if (e.key !== decKey && e.key !== incKey && e.key !== 'Home' && e.key !== 'End') return;
+  e.preventDefault();
+  const prev = handle.previousElementSibling;
+  if (!prev) return;
+  const parent = handle.parentElement;
+  const rect = parent.getBoundingClientRect();
+  const prevRect = prev.getBoundingClientRect();
+  const size = isRow ? rect.width : rect.height;
+  let pct = ((isRow ? prevRect.width : prevRect.height) / size) * 100;
+  if (e.key === decKey) pct = Math.max(10, pct - 5);
+  else if (e.key === incKey) pct = Math.min(90, pct + 5);
+  else if (e.key === 'Home') pct = 10;
+  else if (e.key === 'End') pct = 90;
+  prev.style.flex = `0 0 ${pct}%`;
+  const next = handle.nextElementSibling;
+  if (next) {
+    next.style.flex = '1 1 0';
+    next.style.minWidth = '0';
+    next.style.minHeight = '0';
+  }
+  const sizes = { ...store.get('splitSizes', {}) };
+  sizes[handleKey(handle)] = +pct.toFixed(2);
+  store.set('splitSizes', sizes);
+});
+
+// Make handles focusable after each tool mount (via MutationObserver on toolRoot would be heavier;
+// rely on tool templates to render them, then enrich here)
+const enrichHandles = () => {
+  toolRoot.querySelectorAll('.split-handle').forEach(h => {
+    if (h.tabIndex < 0) {
+      h.tabIndex = 0;
+      h.setAttribute('role', 'separator');
+      const isRow = h.dataset.dir === 'h';
+      h.setAttribute('aria-orientation', isRow ? 'vertical' : 'horizontal');
+      h.setAttribute('aria-label', 'Resize panes - use arrow keys');
+    }
+  });
+};
+
 // ── Init ──
 applyCollapsed(store.get('sidebarCollapsed', false));
 applyTheme(store.get('theme', null));
+themeToggle.setAttribute('aria-pressed', document.documentElement.getAttribute('data-theme') === 'dark' ? 'true' : 'false');
 navigate(getRouteId());
+
+// Register service worker (HTTPS or localhost only).
+// updateViaCache:'none' bypasses HTTP cache for sw.js itself so new SW versions
+// are detected on every page load.
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then(reg => {
+        // Force check for updates on each load
+        reg.update?.();
+        // Reload once when a new SW takes control (only after first install)
+        let reloaded = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (reloaded) return;
+          reloaded = true;
+          location.reload();
+        });
+      })
+      .catch(err => console.warn('[mdtools] SW register failed:', err));
+  });
+}

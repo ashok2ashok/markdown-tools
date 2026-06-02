@@ -53,6 +53,60 @@ body{
   overflow:hidden;-webkit-font-smoothing:antialiased;
 }
 
+/* ── Print (Save as PDF via browser) ── */
+.print-target{display:none}
+@media print{
+  /* Hide everything except print target */
+  html.is-printing body > *{display:none !important}
+  html.is-printing body > .print-target{display:block !important}
+  html.is-printing,html.is-printing body{overflow:visible !important;height:auto !important;background:#fff !important;color:#000 !important}
+  .print-target{
+    position:static;width:auto;max-width:none;
+    padding:0;margin:0 auto;background:#fff;color:#000;
+    font:11pt/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  .print-target .print-title{font-size:18pt;margin:0 0 16pt;border-bottom:1pt solid #888;padding-bottom:4pt}
+  .print-target h1{font-size:16pt}
+  .print-target h2{font-size:14pt}
+  .print-target h3{font-size:12.5pt}
+  .print-target h1,.print-target h2,.print-target h3,.print-target h4{page-break-after:avoid;color:#000}
+  .print-target pre,.print-target blockquote,.print-target table,.print-target img{page-break-inside:avoid}
+  .print-target pre{background:#f5f5f5;border:1pt solid #ddd;padding:6pt;font-size:9.5pt;white-space:pre-wrap;word-wrap:break-word}
+  .print-target code{font-family:"SF Mono",Monaco,Consolas,monospace;font-size:9.5pt;background:#f5f5f5;padding:1pt 3pt;border-radius:2pt}
+  .print-target pre code{background:none;padding:0}
+  .print-target table{border-collapse:collapse;width:100%;margin:8pt 0;font-size:10pt}
+  .print-target th,.print-target td{border:1pt solid #888;padding:4pt 6pt;text-align:left}
+  .print-target th{background:#eee;font-weight:600}
+  .print-target a{color:#000;text-decoration:underline}
+  .print-target a[href^="http"]::after{content:" (" attr(href) ")";font-size:9pt;color:#555;word-break:break-all}
+  .print-target img{max-width:100%}
+  @page{size:A4;margin:0.75in}
+}
+
+/* ── Editor host ── */
+.editor-host{background:var(--bg);position:relative}
+.editor-host > textarea.editor-textarea{flex:1;width:100%;border:none;outline:none;background:transparent;color:var(--text);padding:var(--sp-4);font-family:var(--font-mono,monospace);font-size:14px;line-height:1.6;resize:none}
+.editor-loading{display:flex;align-items:center;justify-content:center;height:100%;min-height:200px}
+/* EasyMDE container takes full height */
+.editor-host .EasyMDEContainer,.editor-host .EasyMDEContainer .CodeMirror{height:100% !important;min-height:300px}
+.editor-host .editor-preview,.editor-host .editor-preview-side{background:var(--surface,#fff);color:var(--text)}
+/* EasyMDE toolbar: force single-row layout (Bootstrap reboot was inflating buttons) */
+.editor-host .editor-toolbar{display:flex !important;flex-wrap:nowrap !important;align-items:center;gap:2px;padding:6px 8px;overflow-x:auto;white-space:nowrap}
+.editor-host .editor-toolbar a,.editor-host .editor-toolbar button{display:inline-flex !important;align-items:center;justify-content:center;width:28px !important;height:28px !important;padding:0 !important;margin:0 !important;border:none !important;background:transparent;color:var(--text-muted);border-radius:var(--r-sm,4px);text-decoration:none;flex:0 0 auto}
+.editor-host .editor-toolbar a:hover,.editor-host .editor-toolbar button:hover{background:var(--surface-2);color:var(--text)}
+.editor-host .editor-toolbar a.active,.editor-host .editor-toolbar button.active{background:var(--surface-3,var(--surface-2));color:var(--accent)}
+.editor-host .editor-toolbar i.separator{display:inline-block !important;width:1px;height:18px;background:var(--border);margin:0 4px;border:none}
+.editor-host .editor-toolbar .fa{font-size:14px;line-height:1}
+/* Toast UI fills host */
+.editor-host .toastui-editor-defaultUI{height:100% !important;border:none}
+
+/* ── Skip link (a11y) ── */
+.skip-link{position:absolute;top:-100px;left:8px;z-index:9999;padding:8px 16px;background:var(--accent,#3b82f6);color:#fff;border-radius:6px;text-decoration:none;font-size:14px;font-weight:500}
+.skip-link:focus{top:8px;outline:2px solid #fff;outline-offset:2px}
+
+/* ── Split handle focus (keyboard nav) ── */
+.split-handle:focus-visible{outline:2px solid var(--accent,#3b82f6);outline-offset:-2px;background:rgba(59,130,246,.2)}
+
 /* ── App shell ── */
 .app-layout{
   display:grid;
@@ -213,7 +267,7 @@ body{
 .header-spacer{flex:1}
 .tool-actions{display:flex;align-items:center;gap:var(--sp-2);flex-shrink:0}
 .tool-body{flex:1;display:flex;overflow:hidden;min-height:0;position:relative}
-/* app-body: paste tool flex wrapper — must live in CSS, not inline, because CSP
+/* app-body: paste tool flex wrapper - must live in CSS, not inline, because CSP
    (style-src without 'unsafe-inline') blocks style= attributes */
 #app-body{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
 
@@ -269,7 +323,7 @@ body{
 .panel-body{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0;position:relative}
 .panel-body.scrollable{overflow-y:auto;overscroll-behavior:contain}
 
-/* Code editor textarea — flex:1 fills remaining space in any flex-column panel */
+/* Code editor textarea - flex:1 fills remaining space in any flex-column panel */
 .code-editor{
   width:100%;flex:1;min-height:0;resize:none;border:none;outline:none;
   background:var(--surface);color:var(--text);
@@ -283,7 +337,7 @@ body{
 .markdown-body{background:transparent!important}
 .markdown-body pre{background:var(--surface-2)!important}
 
-/* Splits — use flex so height propagates correctly in Safari (grid fr rows don't
+/* Splits - use flex so height propagates correctly in Safari (grid fr rows don't
    resolve when container height comes from flex:1, breaking overflow/scroll) */
 .split-2,.split-left,.split-right{display:flex}
 .split-2 .panel,.split-left .panel,.split-right .panel{flex:1;min-width:0;min-height:0}
@@ -311,6 +365,7 @@ body{
 }
 .badge-accent{background:var(--accent-subtle);color:var(--accent)}
 .badge-success{background:rgba(34,197,94,.12);color:var(--success)}
+.badge-warning{background:rgba(245,158,11,.14);color:var(--warning)}
 .badge-danger{background:rgba(239,68,68,.12);color:var(--danger)}
 
 /* Toast */

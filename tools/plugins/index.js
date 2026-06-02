@@ -15,7 +15,7 @@ function TEMPLATE() {
   <div class="tool-header">
     <button class="menu-btn" aria-label="Open menu"><svg class="icon"><use href="#icon-menu"/></svg></button>
     <span class="tool-title">Browser Extensions</span>
-    <span class="tool-desc">Copy web content as Markdown — right from your browser</span>
+    <span class="tool-desc">Copy web content as Markdown - right from your browser</span>
     <div class="header-spacer"></div>
   </div>
 
@@ -26,7 +26,7 @@ function TEMPLATE() {
       <div style="margin-bottom:var(--sp-8);text-align:center">
         <div class="badge" style="margin-bottom:var(--sp-3);font-size:var(--text-xs)">Coming Soon</div>
         <h2 style="font-size:1.25rem;font-weight:700;margin-bottom:var(--sp-2)">Copy anything as Markdown</h2>
-        <p style="color:var(--text-muted);font-size:var(--text-sm)">Right-click any page — convert selection, tables, or entire pages to clean Markdown using the same engine as this web app.</p>
+        <p style="color:var(--text-muted);font-size:var(--text-sm)">Right-click any page - convert selection, tables, or entire pages to clean Markdown using the same engine as this web app.</p>
       </div>
 
       <!-- Feature grid -->
@@ -146,7 +146,7 @@ function TEMPLATE() {
       </div>
 
       <p style="font-size:var(--text-xs);color:var(--text-muted);border-top:1px solid var(--border);padding-top:var(--sp-4)">
-        Source: <code>extensions/</code> in this repo. Shares conversion engine with web app — no duplicate logic. Requires Node.js 18+.
+        Source: <code>extensions/</code> in this repo. Shares conversion engine with web app - no duplicate logic. Requires Node.js 18+.
       </p>
 
     </div>

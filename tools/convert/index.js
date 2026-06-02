@@ -1,6 +1,7 @@
-import { load, buildConverter } from '../../shared/deps.js';
+import { load, getConverter } from '../../shared/deps.js';
 import { store } from '../../shared/store.js';
 import { prettifyMarkdown, tableToMarkdown, copyText, downloadFile, toast, debounce, wordCount } from '../../shared/utils.js';
+import { printHtml } from '../../shared/print.js';
 
 let ctrl = null;
 const parser = new DOMParser();
@@ -14,16 +15,19 @@ export default {
     const { signal } = ctrl;
     let direction = 'md-to-html'; // or 'html-to-md'
     let flavor = store.get('flavor', 'gfm');
+    let depsReady = false;
 
     container.innerHTML = TEMPLATE(flavor);
     const el = s => container.querySelector(s);
 
     load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
-      marked.use({ breaks: true, gfm: true });
+      if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
+      depsReady = true;
       convert();
     });
 
     function convert() {
+      if (!depsReady) return;
       const input = el('#conv-input').value;
       if (!input.trim()) {
         el('#conv-output').value = '';
@@ -33,13 +37,15 @@ export default {
       }
       try {
         if (direction === 'md-to-html') {
-          const raw = typeof marked !== 'undefined' ? marked.parse(input) : input;
-          const html = typeof DOMPurify !== 'undefined' ? DOMPurify.sanitize(raw) : raw;
+          const raw = window.marked.parse(input);
+          const html = window.DOMPurify.sanitize(raw);
           el('#conv-output').value = formatHtml(html);
-          // Rendered preview
+          const previewScroll = el('#conv-preview-row');
+          const prevTop = previewScroll?.scrollTop || 0;
           el('#conv-preview').innerHTML = html;
+          if (previewScroll) previewScroll.scrollTop = prevTop;
         } else {
-          const td = buildConverter(flavor);
+          const td = getConverter(flavor);
           const doc = parser.parseFromString(input, 'text/html');
           const tables = Array.from(doc.body.querySelectorAll('table'));
           const tableMap = new Map();
@@ -87,8 +93,7 @@ export default {
     }, { signal });
 
     el('#conv-dir-btn').addEventListener('click', () => {
-      // Swap input/output, flip direction
-      const tmp = el('#conv-input').value;
+      // Move converted output into input, flip direction (one-way swap)
       el('#conv-input').value = el('#conv-output').value;
       setDirection(direction === 'md-to-html' ? 'html-to-md' : 'md-to-html');
     }, { signal });
@@ -118,6 +123,22 @@ export default {
       if (!v) return;
       const ext = direction === 'md-to-html' ? 'html' : 'md';
       downloadFile(`converted.${ext}`, v, direction === 'md-to-html' ? 'text/html' : 'text/markdown');
+    }, { signal });
+
+    el('#btn-conv-print').addEventListener('click', () => {
+      if (!el('#conv-input').value.trim()) return;
+      if (!window.marked || !window.DOMPurify) {
+        toast('Print engine still loading - try again', 'warn');
+        return;
+      }
+      let html;
+      if (direction === 'md-to-html') {
+        html = el('#conv-preview').innerHTML; // already sanitized in convert()
+        if (!html) html = window.DOMPurify.sanitize(window.marked.parse(el('#conv-input').value));
+      } else {
+        html = window.DOMPurify.sanitize(window.marked.parse(el('#conv-output').value || ''));
+      }
+      if (html) printHtml(html);
     }, { signal });
 
     el('#btn-conv-clear').addEventListener('click', () => {
@@ -158,7 +179,8 @@ function TEMPLATE(flavor) {
     <div class="header-spacer"></div>
     <div class="tool-actions">
       <button class="btn btn-secondary btn-sm" id="btn-conv-clear">Clear</button>
-      <button class="btn btn-secondary btn-sm" id="btn-conv-download"><svg class="icon"><use href="#icon-download"/></svg></button>
+      <button class="btn btn-secondary btn-sm" id="btn-conv-download" title="Download"><svg class="icon"><use href="#icon-download"/></svg></button>
+      <button class="btn btn-secondary btn-sm" id="btn-conv-print" title="Print / Save as PDF"><svg class="icon"><use href="#icon-print"/></svg></button>
       <button class="btn btn-primary btn-sm" id="btn-conv-copy"><svg class="icon"><use href="#icon-copy"/></svg> Copy</button>
     </div>
   </div>
@@ -176,7 +198,7 @@ function TEMPLATE(flavor) {
     </div>
     <!-- Horizontal handle -->
     <div class="split-handle" data-dir="h"></div>
-    <!-- Output — vertical split: HTML source on top, rendered preview below -->
+    <!-- Output - vertical split: HTML source on top, rendered preview below -->
     <div class="panel panel-preview">
       <div class="panel-header">
         <span class="panel-label" id="conv-output-label">HTML Source</span>

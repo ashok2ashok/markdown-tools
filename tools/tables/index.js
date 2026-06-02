@@ -1,4 +1,4 @@
-import { rowsToMarkdown, copyText, downloadFile, toast } from '../../shared/utils.js';
+import { rowsToMarkdown, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
 
 let ctrl = null;
 let rows = [];
@@ -44,6 +44,7 @@ export default {
       if (!grid) return;
       const table = document.createElement('table');
       table.className = 'md-table';
+      const cellInputs = []; // flat index: ri*cols+ci → textarea
       rows.forEach((row, ri) => {
         const tr = document.createElement('tr');
         row.forEach((cell, ci) => {
@@ -54,6 +55,7 @@ export default {
           inp.value = cell;
           inp.rows = 1;
           inp.setAttribute('aria-label', ri === 0 ? `Header ${ci+1}` : `Row ${ri}, Col ${ci+1}`);
+          cellInputs[ri * cols + ci] = inp;
           inp.addEventListener('input', () => {
             rows[ri][ci] = inp.value;
             inp.style.height = 'auto';
@@ -63,15 +65,12 @@ export default {
           inp.addEventListener('keydown', e => {
             if (e.key === 'Tab') {
               e.preventDefault();
-              const next = e.shiftKey
-                ? table.querySelectorAll('.cell-input')[ri * cols + ci - 1]
-                : table.querySelectorAll('.cell-input')[ri * cols + ci + 1];
-              next?.focus();
+              const target = cellInputs[ri * cols + ci + (e.shiftKey ? -1 : 1)];
+              target?.focus();
             }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
-              const below = table.querySelectorAll('.cell-input')[(ri+1) * cols + ci];
-              below?.focus();
+              cellInputs[(ri+1) * cols + ci]?.focus();
             }
           }, { signal });
           el.appendChild(inp);
@@ -166,7 +165,7 @@ export default {
       }
     }, { signal });
 
-    // Make output textarea editable — typing in it syncs back to grid
+    // Make output textarea editable - typing in it syncs back to grid
     el('#tbl-output').removeAttribute('readonly');
     el('#tbl-output').addEventListener('input', debounce(e => syncFromMarkdown(e.target.value), 400), { signal });
 
@@ -185,11 +184,6 @@ function parsePipeTable(text) {
     .filter(l => l.trim().startsWith('|'))
     .filter(l => !l.match(/^\|[-:\s|]+\|$/)) // skip separator
     .map(l => l.replace(/^\||\|$/g,'').split('|').map(c => c.trim()));
-}
-
-function debounce(fn, ms) {
-  let t;
-  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
 }
 
 function TEMPLATE() {
@@ -234,7 +228,7 @@ function TEMPLATE() {
       <div class="panel-header">
         <span class="panel-label">Pipe Table Output</span>
       </div>
-      <textarea id="tbl-output" class="code-editor" style="height:120px;border-top:none" spellcheck="false" aria-label="Pipe table — edit directly or use grid above" placeholder="| Header 1 | Header 2 |&#10;| --- | --- |&#10;| Cell | Cell |"></textarea>
+      <textarea id="tbl-output" class="code-editor" style="height:120px;border-top:none" spellcheck="false" aria-label="Pipe table - edit directly or use grid above" placeholder="| Header 1 | Header 2 |&#10;| --- | --- |&#10;| Cell | Cell |"></textarea>
     </div>
   </div>
 </div>`;

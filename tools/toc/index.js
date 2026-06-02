@@ -13,6 +13,9 @@ export default {
     container.innerHTML = TEMPLATE();
     const el = s => container.querySelector(s);
 
+    let lastMd = null;
+    let cachedHeadings = [];
+
     function generate() {
       const md = el('#toc-input').value.trim();
       const minDepth = +el('#toc-min').value || 1;
@@ -21,7 +24,12 @@ export default {
       const links    = el('#toc-links').checked;
       const numbered = el('#toc-numbered').checked;
 
-      const headings = extractHeadings(md).filter(h => h.level >= minDepth && h.level <= maxDepth);
+      // Cache extractHeadings - re-runs only when markdown changes, not on option toggles
+      if (md !== lastMd) {
+        cachedHeadings = extractHeadings(md);
+        lastMd = md;
+      }
+      const headings = cachedHeadings.filter(h => h.level >= minDepth && h.level <= maxDepth);
       if (!headings.length) { el('#toc-output').value = ''; renderPreview(''); return; }
 
       const minLevel = Math.min(...headings.map(h => h.level));
@@ -48,14 +56,17 @@ export default {
     }
 
     function renderPreview(toc) {
-      // Simple visual preview as nested list
       const lines = toc.split('\n');
       const items = lines.map(l => {
         const depth = (l.match(/^(\s+)/)?.[1].length || 0) / 2;
         const text = l.replace(/^[\s\-*\d.]+/, '').trim();
-        return `<div style="padding-left:${depth*16}px;font-size:var(--text-sm);padding-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${depth===0?'var(--text)':'var(--text-muted)'}">${text}</div>`;
+        return `<div style="padding-left:${depth*16}px;font-size:var(--text-sm);padding-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:${depth===0?'var(--text)':'var(--text-muted)'}">${escHtml(text)}</div>`;
       }).join('');
       el('#toc-preview').innerHTML = items || '<p class="text-muted text-xs">TOC will appear here</p>';
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
 
     const schedGen = debounce(generate, 300);
@@ -132,7 +143,7 @@ function TEMPLATE() { return `
       <button class="btn btn-primary btn-sm" id="btn-copy-toc"><svg class="icon"><use href="#icon-copy"/></svg> Copy</button>
     </div>
   </div>
-  <!-- Options bar — full width, above the split -->
+  <!-- Options bar - full width, above the split -->
   <div class="tool-bar">
     <span class="panel-label" style="flex:none">Depth</span>
     <select id="toc-min" class="select" style="width:60px" aria-label="Min heading level">
@@ -159,7 +170,7 @@ function TEMPLATE() { return `
     </div>
     <!-- Horizontal handle -->
     <div class="split-handle" data-dir="h"></div>
-    <!-- Output — vertical split: TOC text on top, visual preview below -->
+    <!-- Output - vertical split: TOC text on top, visual preview below -->
     <div class="panel panel-preview">
       <div class="panel-header"><span class="panel-label">Generated TOC</span></div>
       <textarea id="toc-output" class="code-editor" spellcheck="false" readonly aria-label="Generated table of contents"></textarea>

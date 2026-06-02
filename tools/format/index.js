@@ -1,7 +1,18 @@
 import { prettifyMarkdown, smartTypography, copyText, downloadFile, toast, debounce, diffLines } from '../../shared/utils.js';
 import { store } from '../../shared/store.js';
+import { load } from '../../shared/deps.js';
+import { printHtml } from '../../shared/print.js';
 
 let ctrl = null;
+
+const RE_HEADING       = /^(#{1,6})\s+(.+)/;
+const RE_BARE_URL      = /https?:\/\/[^\s)>]+/;
+const RE_LINKED_URL    = /\]\(https?:/;
+const RE_TRAILING_WS   = /\s+$/;
+const RE_HEADING_NOSP  = /^#{1,6}[^#\s]/;
+const RE_LIST_MARKER   = /^\s*[*+]\s/;
+const RE_LIST_REPLACE  = /^(\s*)[*+](\s)/;
+const RE_3BLANKS       = /\n{3,}/g;
 
 export default {
   id: 'format',
@@ -28,7 +39,7 @@ export default {
       let out = md;
       if (opts.trailing)    out = out.split('\n').map(l => l.trimEnd()).join('\n');
       if (opts.normalize)   out = prettifyMarkdown(out);
-      if (opts.blanks)      out = out.replace(/\n{3,}/g, '\n\n');
+      if (opts.blanks)      out = out.replace(RE_3BLANKS, '\n\n');
       if (opts.listMarkers) out = normalizeListMarkers(out);
       if (opts.smartTypo)   out = smartTypography(out);
       if (opts.finalNewline && !out.endsWith('\n')) out += '\n';
@@ -36,10 +47,8 @@ export default {
     }
 
     function normalizeListMarkers(md) {
-      // Normalize *, + to - for unordered lists (not inside code blocks)
-      const inCode = false;
       return md.split('\n').map(line => {
-        if (/^\s*[*+]\s/.test(line)) return line.replace(/^(\s*)[*+](\s)/, '$1-$2');
+        if (RE_LIST_MARKER.test(line)) return line.replace(RE_LIST_REPLACE, '$1-$2');
         return line;
       }).join('\n');
     }
@@ -47,23 +56,21 @@ export default {
     function lint(md) {
       const warnings = [];
       const lines = md.split('\n');
-      const headings = {};
-      lines.forEach((l, i) => {
-        const hm = l.match(/^(#{1,6})\s+(.+)/);
+      const headings = Object.create(null);
+      for (let i = 0; i < lines.length; i++) {
+        const l = lines[i];
+        const hm = l.match(RE_HEADING);
         if (hm) {
           const text = hm[2].trim();
           if (headings[text]) warnings.push({ line: i+1, msg: `Duplicate heading: "${text}"` });
           headings[text] = true;
         }
-        // Bare URL (not in markdown link)
-        if (/https?:\/\/[^\s)>]+/.test(l) && !/\]\(https?:/.test(l) && !l.startsWith('    ') && !l.startsWith('\t')) {
-          warnings.push({ line: i+1, msg: 'Bare URL — wrap in <…> or [text](url)' });
+        if (RE_BARE_URL.test(l) && !RE_LINKED_URL.test(l) && !l.startsWith('    ') && !l.startsWith('\t')) {
+          warnings.push({ line: i+1, msg: 'Bare URL - wrap in <…> or [text](url)' });
         }
-        // Trailing whitespace
-        if (/\s+$/.test(l)) warnings.push({ line: i+1, msg: 'Trailing whitespace' });
-        // ATX heading missing space
-        if (/^#{1,6}[^#\s]/.test(l)) warnings.push({ line: i+1, msg: 'Heading missing space after #' });
-      });
+        if (RE_TRAILING_WS.test(l)) warnings.push({ line: i+1, msg: 'Trailing whitespace' });
+        if (RE_HEADING_NOSP.test(l)) warnings.push({ line: i+1, msg: 'Heading missing space after #' });
+      }
       return warnings;
     }
 
@@ -83,13 +90,15 @@ export default {
         diffEl.style.display = 'none';
       }
 
-      // Lint
+      // Lint - style hints / warnings, not hard errors
       const warns = lint(input);
       const lintEl = el('#fmt-lint');
       if (warns.length) {
-        lintEl.innerHTML = warns.map(w =>
-          `<div class="badge badge-danger" style="margin:2px;display:inline-flex">L${w.line}: ${w.msg}</div>`
-        ).join('');
+        lintEl.innerHTML =
+          `<span class="badge badge-warning" style="margin:2px">${warns.length} lint hint${warns.length === 1 ? '' : 's'}</span>` +
+          warns.map(w =>
+            `<div class="badge badge-warning" style="margin:2px;display:inline-flex">L${w.line}: ${w.msg}</div>`
+          ).join('');
       } else {
         lintEl.innerHTML = '<span class="badge badge-success">No issues found</span>';
       }
@@ -141,6 +150,13 @@ export default {
       downloadFile('formatted.md', el('#fmt-output').value || '');
     }, { signal });
 
+    el('#btn-print-fmt').addEventListener('click', async () => {
+      const md = el('#fmt-output').value || '';
+      if (!md) return;
+      await load('marked', 'dompurify');
+      printHtml(window.DOMPurify.sanitize(window.marked.parse(md)));
+    }, { signal });
+
     el('#btn-clear-fmt').addEventListener('click', () => {
       el('#fmt-input').value = '';
       el('#fmt-output').value = '';
@@ -162,7 +178,8 @@ function TEMPLATE() { return `
     <div class="tool-actions">
       <button class="btn btn-secondary btn-sm" id="btn-apply" title="Copy formatted back to input">Apply to Input</button>
       <button class="btn btn-secondary btn-sm" id="btn-clear-fmt">Clear</button>
-      <button class="btn btn-secondary btn-sm" id="btn-download-fmt"><svg class="icon"><use href="#icon-download"/></svg></button>
+      <button class="btn btn-secondary btn-sm" id="btn-download-fmt" title="Download"><svg class="icon"><use href="#icon-download"/></svg></button>
+      <button class="btn btn-secondary btn-sm" id="btn-print-fmt" title="Print / Save as PDF"><svg class="icon"><use href="#icon-print"/></svg></button>
       <button class="btn btn-primary btn-sm" id="btn-copy-fmt"><svg class="icon"><use href="#icon-copy"/></svg> Copy</button>
     </div>
   </div>

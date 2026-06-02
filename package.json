@@ -1,34 +1,47 @@
 {
-  "name": "clipboard2markdown",
+  "name": "markdown-tools",
   "version": "1.0.11",
-  "description": "Paste rich text, get clean Markdown. Browser-based converter with live preview and multiple markdown flavors.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/**/*.test.mjs"
+  },
+  "description": "Browser-based Markdown suite: convert, edit, diff, lint, paste-to-markdown, table editor, TOC generator, link auditor, front matter editor. Multiple WYSIWYG/MD editors swappable. 100% client-side.",
   "keywords": [
     "markdown",
-    "clipboard",
+    "markdown-editor",
+    "wysiwyg",
     "html-to-markdown",
     "converter",
     "gfm",
     "commonmark",
     "pandoc",
-    "browser"
+    "browser",
+    "client-side",
+    "diff",
+    "front-matter",
+    "table-editor",
+    "toc"
   ],
-  "homepage": "https://ashok2ashok.github.io/clipboard2markdown/",
+  "homepage": "https://ashok2ashok.github.io/markdown-tools/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ashok2ashok/clipboard2markdown.git"
+    "url": "https://github.com/ashok2ashok/markdown-tools.git"
   },
   "bugs": {
-    "url": "https://github.com/ashok2ashok/clipboard2markdown/issues"
+    "url": "https://github.com/ashok2ashok/markdown-tools/issues"
   },
   "license": "MIT",
   "author": "Ashok Goli",
   "files": [
     "index.html",
-    "clipboard2markdown.js",
+    "app.js",
+    "sw.js",
     "styles.css",
     "favicon.ico",
     "background.svg",
-    "background-dark.svg"
+    "background-dark.svg",
+    "shared",
+    "tools"
   ],
-  "main": "clipboard2markdown.js"
+  "main": "app.js"
 }

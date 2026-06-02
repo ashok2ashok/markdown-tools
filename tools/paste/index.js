@@ -1,10 +1,11 @@
 import { store } from '../../shared/store.js';
-import { load, buildConverter } from '../../shared/deps.js';
+import { load, getConverter } from '../../shared/deps.js';
 import {
   debounce, downloadFile, compressToURL, decompressFromURL,
   wordCount, smartTypography, prettifyMarkdown, tableToMarkdown,
   copyText, toast, relTime,
 } from '../../shared/utils.js';
+import { printHtml } from '../../shared/print.js';
 
 const FLAVORS = [
   { id:'gfm',          label:'GitHub (GFM)' },
@@ -19,9 +20,8 @@ const parser = new DOMParser();
 let ctrl = null;
 let currentHtml = '';
 let currentFlavor = 'gfm';
-let converters = {};
 let convertersReady = false;
-let pendingHtml = null;
+let pendingQueue = [];
 let flavorCache = new Map();
 let splitMode = 'split'; // split | left | right
 let previewTimer = 0;
@@ -61,25 +61,26 @@ export default {
       });
     }
 
-    // Build all converters — process any paste that arrived before CDN loaded
+    // Load CDN deps; Turndown converters built lazily per-flavor on demand
     load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
-      marked.use({ breaks: true, gfm: true });
-      FLAVORS.forEach(f => { converters[f.id] = buildConverter(f.id); });
+      if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
       convertersReady = true;
-      if (pendingHtml) { processHtml(pendingHtml); pendingHtml = null; }
+      // Only process the last queued paste - earlier ones are stale
+      const last = pendingQueue.pop();
+      pendingQueue = [];
+      if (last) processHtml(last);
     }).catch(err => {
       console.error('[paste] CDN load failed:', err);
-      el('landing-msg').textContent = 'Failed to load converter — check your connection.';
+      el('landing-msg').textContent = 'Failed to load converter - check your connection.';
     });
 
     // ── Conversion ──
     function convert(html) {
       if (flavorCache.has(currentFlavor)) return flavorCache.get(currentFlavor);
-      if (!converters[currentFlavor]) return '';
+      if (!convertersReady) return '';
       let result;
       try {
-        const td = converters[currentFlavor];
-        const flavor = FLAVORS.find(f => f.id === currentFlavor);
+        const td = getConverter(currentFlavor);
         const hasTables = ['gfm','pandoc','rmarkdown','multimarkdown'].includes(currentFlavor);
         if (!hasTables) {
           result = prettifyMarkdown(applyOpts(td.turndown(html)));
@@ -121,13 +122,13 @@ export default {
 
     function processHtml(html) {
       if (!html || !html.trim() || html === '<br>') { showEmptyWarning(); return; }
-      // CDN still loading — queue and show spinner
+      // CDN still loading - queue and show spinner
       if (!convertersReady) {
-        pendingHtml = html;
+        pendingQueue.push(html);
         el('landing-msg').textContent = 'Converting…';
         return;
       }
-      // Same content — skip
+      // Same content - skip
       if (html === currentHtml) { toast('Same content already converted'); return; }
       currentHtml = html;
       flavorCache.clear();
@@ -140,9 +141,9 @@ export default {
       updateStatus();
       output.focus();
       output.select();
-      // Save to history
-      const words = output.value.trim().split(/\s+/);
-      const title = words.slice(0,6).join(' ') + (words.length > 6 ? '…' : '');
+      // Save to history - first 6 words only (no need to scan whole document)
+      const head = output.value.trim().slice(0, 200).split(/\s+/);
+      const title = head.slice(0, 6).join(' ') + (head.length > 6 ? '…' : '');
       store.pushHistory({ title, markdown: output.value, html });
       renderHistory();
     }
@@ -161,13 +162,16 @@ export default {
     // ── Preview ──
     const PREVIEW_CHAR_LIMIT = 200_000;
     function updatePreview() {
-      if (typeof DOMPurify === 'undefined' || typeof marked === 'undefined') return;
+      if (!convertersReady || !window.marked || !window.DOMPurify) return;
       const md = output.value || '';
+      const scroller = previewEl.parentElement;
+      const prevScrollTop = scroller?.scrollTop || 0;
       if (md.length > PREVIEW_CHAR_LIMIT) {
-        previewEl.innerHTML = `<p style="color:var(--text-muted);font-style:italic">Preview paused — document is very large (${Math.round(md.length/1000)}K chars). Scroll the editor instead.</p>`;
+        previewEl.innerHTML = `<p style="color:var(--text-muted);font-style:italic">Preview paused - document is very large (${Math.round(md.length/1000)}K chars). Scroll the editor instead.</p>`;
         return;
       }
-      previewEl.innerHTML = DOMPurify.sanitize(marked.parse(md));
+      previewEl.innerHTML = window.DOMPurify.sanitize(window.marked.parse(md));
+      if (scroller) scroller.scrollTop = prevScrollTop;
     }
     const schedulePreview = debounce(updatePreview, 300);
 
@@ -311,13 +315,31 @@ export default {
       toast('Downloaded document.md');
     }, { signal });
 
+    // Print / Save as PDF
+    el('btn-print').addEventListener('click', () => {
+      if (!output.value) return;
+      if (!window.marked || !window.DOMPurify) {
+        toast('Print engine still loading - try again in a moment', 'warn');
+        return;
+      }
+      const html = window.DOMPurify.sanitize(window.marked.parse(output.value));
+      printHtml(html);
+    }, { signal });
+
     // Share
     el('btn-share').addEventListener('click', async () => {
       if (!output.value) return;
       const hash = await compressToURL(output.value);
       const url = location.origin + location.pathname + hash;
       await copyText(url);
-      toast('Share link copied!');
+      // Warn if compression fallback truncated content
+      if (hash.startsWith('#share/%') && output.value.length > 4000) {
+        toast('Share link copied (truncated - document too large for URL)', 'warn', 4000);
+      } else if (url.length > 7000) {
+        toast('Share link copied (very large - some browsers may reject)', 'warn', 4000);
+      } else {
+        toast('Share link copied!');
+      }
     }, { signal });
 
     // Prettify
@@ -367,7 +389,7 @@ export default {
       if (currentHtml) { flavorCache.clear(); output.value = convert(currentHtml); updatePreview(); }
     }, { signal });
 
-    // Mobile paste button — reads clipboard via API
+    // Mobile paste button - reads clipboard via API
     el('btn-mobile-paste')?.addEventListener('click', async () => {
       try {
         if (navigator.clipboard?.read) {
@@ -391,6 +413,40 @@ export default {
       }
     }, { signal });
 
+    // Keyboard shortcuts (Mod = Ctrl on win/linux, Cmd on mac)
+    container.addEventListener('keydown', e => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      // Ctrl/Cmd+Enter → copy
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        el('btn-copy')?.click();
+      }
+      // Ctrl/Cmd+S → download
+      else if (e.key === 's') {
+        e.preventDefault();
+        el('btn-download')?.click();
+      }
+      // Ctrl/Cmd+K → clear
+      else if (e.key === 'k') {
+        e.preventDefault();
+        el('btn-clear')?.click();
+      }
+      // Ctrl/Cmd+H → toggle history
+      else if (e.key === 'h') {
+        e.preventDefault();
+        el('btn-history')?.click();
+      }
+    }, { signal });
+
+    // Esc closes history panel
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && historyOpen) {
+        historyOpen = false;
+        el('history-panel')?.classList.remove('open');
+      }
+    }, { signal });
+
     // Init
     applySplit(splitMode);
     applyZoom(previewZoom);
@@ -398,7 +454,8 @@ export default {
       b.classList.toggle('active', b.dataset.flavor === currentFlavor);
     });
     const savedOpts = store.get('pasteOptions', {});
-    if (el('opt-smarttypo')) el('opt-smarttypo').checked = !!savedOpts.smartTypo;
+    const smartTypoBox = el('opt-smarttypo');
+    if (smartTypoBox) smartTypoBox.checked = !!savedOpts.smartTypo;
     renderHistory();
 
     // Check if starting from a shared URL
@@ -409,9 +466,8 @@ export default {
   unmount() {
     ctrl?.abort();
     ctrl = null;
-    converters = {};
     convertersReady = false;
-    pendingHtml = null;
+    pendingQueue = [];
     flavorCache.clear();
     currentHtml = '';
     historyOpen = false;
@@ -454,6 +510,9 @@ function TEMPLATE(flavor, splitMode) {
       <button class="btn btn-ghost btn-sm btn-icon" id="btn-download" title="Download .md" aria-label="Download">
         <svg class="icon"><use href="#icon-download"/></svg>
       </button>
+      <button class="btn btn-ghost btn-sm btn-icon" id="btn-print" title="Print / Save as PDF" aria-label="Print">
+        <svg class="icon"><use href="#icon-print"/></svg>
+      </button>
       <button class="btn btn-ghost btn-sm" id="btn-prettify" title="Normalize spacing">Prettify</button>
       <button class="btn btn-primary btn-sm" id="btn-copy">
         <svg class="icon"><use href="#icon-copy"/></svg><span class="btn-label">Copy</span>
@@ -466,21 +525,21 @@ function TEMPLATE(flavor, splitMode) {
   <div id="landing" class="empty-state">
     <svg class="empty-icon" width="64" height="64"><use href="#icon-paste"/></svg>
     <h3>Paste rich text to convert</h3>
-    <p>Copy anything from the web — docs, articles, tables — then paste it here.</p>
+    <p>Copy anything from the web - docs, articles, tables - then paste it here.</p>
     <div class="empty-kbd">
       <kbd>Ctrl+V</kbd> <span class="text-muted">or</span> <kbd>⌘V</kbd>
       <span class="text-muted text-xs">anywhere in this window</span>
     </div>
     <p id="landing-msg" class="text-sm text-muted" style="min-height:1.2em"></p>
     <div id="paste-warning" class="d-none" style="margin-top:var(--sp-3);padding:var(--sp-2) var(--sp-4);background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);border-radius:var(--r-md);color:var(--warning);font-size:var(--text-sm)">
-      Nothing in clipboard — copy some rich text first.
+      Nothing in clipboard - copy some rich text first.
     </div>
     <button class="btn btn-primary d-md-none mt-4" id="btn-mobile-paste">Paste from Clipboard</button>
     <div class="divider" style="width:80%;max-width:320px;margin:var(--sp-4) auto"></div>
     <p class="text-xs text-muted">Or drop an <strong>.html</strong> file anywhere</p>
   </div>
 
-  <!-- App body: flex column wrapper — hides on landing, shows editor+status together -->
+  <!-- App body: flex column wrapper - hides on landing, shows editor+status together -->
   <div id="app-body" class="d-none">
   <div class="tool-body ${splitClass}">
     <!-- Editor panel -->
@@ -534,7 +593,7 @@ function TEMPLATE(flavor, splitMode) {
       <div class="history-list" id="history-list"></div>
     </div>
   </div><!-- end tool-body split -->
-  <!-- Status bar hidden with app-body — not visible on landing -->
+  <!-- Status bar hidden with app-body - not visible on landing -->
   <div class="status-bar">
     <span id="status-words">0 words</span>
     <span id="status-chars">0 chars</span>

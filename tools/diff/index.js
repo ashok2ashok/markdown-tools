@@ -37,9 +37,12 @@ export default {
 
     function updateStats(ops) {
       if (!ops) { el('#diff-stats').textContent = ''; return; }
-      const adds = ops.filter(o => o.type === 'ins').length;
-      const dels = ops.filter(o => o.type === 'del').length;
-      const eq   = ops.filter(o => o.type === 'eq').length;
+      let adds = 0, dels = 0, eq = 0;
+      for (const o of ops) {
+        if (o.type === 'ins') adds++;
+        else if (o.type === 'del') dels++;
+        else eq++;
+      }
       el('#diff-stats').textContent = `+${adds} −${dels} =${eq} lines`;
     }
 
@@ -92,10 +95,8 @@ export default {
       const rows = pairs.map(({ left, right }) => {
         const lClass = left ? (left.type === 'del' ? 'diff-del' : '') : 'diff-empty';
         const rClass = right ? (right.type === 'ins' ? 'diff-add' : '') : 'diff-empty';
-        if (left?.type !== 'del' && left) lNum++;
-        else if (left?.type === 'del') lNum++;
-        if (right?.type !== 'ins' && right) rNum++;
-        else if (right?.type === 'ins') rNum++;
+        if (left) lNum++;
+        if (right) rNum++;
         const lMark = left ? (left.type === 'del' ? '−' : ' ') : '';
         const rMark = right ? (right.type === 'ins' ? '+' : ' ') : '';
         const lLn = left ? lNum : '';
@@ -109,19 +110,23 @@ export default {
       out.innerHTML = `<div class="diff-output diff-split-view">${rows || '<p class="text-muted text-sm" style="padding:var(--sp-4)">No differences.</p>'}</div>`;
     }
 
-    function exportDiff() {
+    function buildPatch() {
       const a = el('#diff-a').value;
       const b = el('#diff-b').value;
-      if (!a && !b) return;
+      if (!a && !b) return null;
       const { ops, aLines, bLines } = diffLines(a, b);
-      let aNum = 0, bNum = 0;
       const lines = ['--- original', '+++ modified'];
-      ops.forEach(op => {
-        if (op.type === 'eq')  { aNum++; bNum++; lines.push(' ' + aLines[op.a]); }
-        if (op.type === 'del') { aNum++; lines.push('-' + aLines[op.a]); }
-        if (op.type === 'ins') { bNum++; lines.push('+' + bLines[op.b]); }
-      });
-      downloadFile('diff.patch', lines.join('\n'));
+      for (const op of ops) {
+        if (op.type === 'eq')  lines.push(' ' + aLines[op.a]);
+        else if (op.type === 'del') lines.push('-' + aLines[op.a]);
+        else if (op.type === 'ins') lines.push('+' + bLines[op.b]);
+      }
+      return lines.join('\n');
+    }
+
+    function exportDiff() {
+      const patch = buildPatch();
+      if (patch) downloadFile('diff.patch', patch);
     }
 
     const schedDiff = debounce(computeDiff, 300);
@@ -158,18 +163,9 @@ export default {
     }, { signal });
 
     el('#btn-diff-copy').addEventListener('click', async () => {
-      const a = el('#diff-a').value;
-      const b = el('#diff-b').value;
-      if (!a && !b) return;
-      const { ops, aLines, bLines } = diffLines(a, b);
-      let aNum = 0, bNum = 0;
-      const lines = ['--- original', '+++ modified'];
-      ops.forEach(op => {
-        if (op.type === 'eq')  { aNum++; bNum++; lines.push(' ' + aLines[op.a]); }
-        if (op.type === 'del') { aNum++; lines.push('-' + aLines[op.a]); }
-        if (op.type === 'ins') { bNum++; lines.push('+' + bLines[op.b]); }
-      });
-      await copyText(lines.join('\n'));
+      const patch = buildPatch();
+      if (!patch) return;
+      await copyText(patch);
       toast('Diff copied!');
     }, { signal });
 
@@ -212,7 +208,7 @@ function TEMPLATE() { return `
     </div>
   </div>
   <div class="tool-body flex-col">
-    <!-- Input row — flex:1 split of top half -->
+    <!-- Input row - flex:1 split of top half -->
     <div class="split-2 fill">
       <div class="panel panel-editor">
         <div class="panel-header"><span class="panel-label">Original</span></div>

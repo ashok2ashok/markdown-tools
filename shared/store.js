@@ -13,9 +13,28 @@ const defaults = {
 
 let _data = { ...defaults };
 const _listeners = new Map();
+let _saveScheduled = false;
 
 function _save() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_data)); } catch {}
+  if (_saveScheduled) return;
+  _saveScheduled = true;
+  const flush = () => {
+    _saveScheduled = false;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_data)); } catch {}
+  };
+  // Coalesce rapid writes via rAF; fall back to timeout if rAF unavailable
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(flush);
+  else setTimeout(flush, 0);
+}
+
+// Force-flush pending writes before unload so nothing is lost
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    if (_saveScheduled) {
+      _saveScheduled = false;
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(_data)); } catch {}
+    }
+  });
 }
 
 function _load() {

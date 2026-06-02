@@ -1,4 +1,4 @@
-// Shared pure utilities — no side effects, no imports
+// Shared pure utilities - no side effects, no imports
 
 // ── Debounce ──
 export function debounce(fn, ms) {
@@ -57,6 +57,17 @@ export function wordCount(text) {
     chars: text.length,
     lines: text.split('\n').length,
   };
+}
+
+// ── URL scheme sanitizer (blocks javascript:, data:, vbscript:, etc.) ──
+const SAFE_URL_SCHEMES = new Set(['http:', 'https:', 'mailto:', 'tel:', 'ftp:', 'sftp:']);
+export function sanitizeUrl(url) {
+  if (!url) return '';
+  const trimmed = String(url).trim();
+  if (trimmed.startsWith('#') || trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) return trimmed;
+  const m = trimmed.match(/^([a-zA-Z][a-zA-Z0-9+.\-]*):/);
+  if (!m) return trimmed;
+  return SAFE_URL_SCHEMES.has(m[1].toLowerCase() + ':') ? trimmed : '';
 }
 
 // ── Escape HTML ──
@@ -194,28 +205,69 @@ export function extractHeadings(md) {
 }
 
 // ── Parse links from markdown ──
+const RE_INLINE_LINK = /(^|[^!])\[([^\]]*)\]\(([^)]+)\)/g;
+const RE_REF_LINK    = /^\[([^\]]+)\]:\s*(\S+)(?:\s+"[^"]*")?$/gm;
+const RE_IMG_LINK    = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
 export function extractLinks(md) {
   const links = [];
-  // inline links: [text](url)
-  const inlineRe = /\[([^\]]*)\]\(([^)]+)\)/g;
   let m;
-  while ((m = inlineRe.exec(md)) !== null) {
-    links.push({ text: m[1], url: m[2].trim(), type: 'inline', raw: m[0] });
+  while ((m = RE_INLINE_LINK.exec(md)) !== null) {
+    links.push({ text: m[2], url: m[3].trim(), type: 'inline', raw: m[0].slice(m[1].length) });
   }
-  // reference links: [text][id] + [id]: url
-  const refRe = /^\[([^\]]+)\]:\s*(\S+)(?:\s+"[^"]*")?$/gm;
-  while ((m = refRe.exec(md)) !== null) {
+  while ((m = RE_REF_LINK.exec(md)) !== null) {
     links.push({ text: m[1], url: m[2].trim(), type: 'reference', raw: m[0] });
   }
-  // images
-  const imgRe = /!\[([^\]]*)\]\(([^)]+)\)/g;
-  while ((m = imgRe.exec(md)) !== null) {
+  while ((m = RE_IMG_LINK.exec(md)) !== null) {
     links.push({ text: m[1], url: m[2].trim(), type: 'image', raw: m[0] });
   }
   return links;
 }
 
 // ── Simple YAML front matter parser ──
+function parseScalar(raw) {
+  const v = raw.trim();
+  if (v === '' || v === '~' || v === 'null') return '';
+  if (v === 'true')  return true;
+  if (v === 'false') return false;
+  // Quoted strings
+  if ((v.startsWith('"') && v.endsWith('"') && v.length >= 2)) {
+    return v.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  }
+  if ((v.startsWith("'") && v.endsWith("'") && v.length >= 2)) {
+    return v.slice(1, -1).replace(/''/g, "'");
+  }
+  // Number
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  return v;
+}
+
+function parseInlineArray(raw) {
+  // Strip [ ]
+  const inner = raw.slice(1, -1).trim();
+  if (!inner) return [];
+  // Split on commas not inside quotes
+  const items = [];
+  let buf = '', quote = null;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (quote) {
+      if (c === quote && inner[i-1] !== '\\') quote = null;
+      buf += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      buf += c;
+    } else if (c === ',') {
+      items.push(parseScalar(buf));
+      buf = '';
+    } else {
+      buf += c;
+    }
+  }
+  if (buf.trim()) items.push(parseScalar(buf));
+  return items;
+}
+
 export function parseFrontMatter(content) {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n|$)/);
   if (!match) return { data: {}, body: content };
@@ -226,31 +278,65 @@ export function parseFrontMatter(content) {
   let i = 0;
   while (i < lines.length) {
     const line = lines[i];
-    const kv = line.match(/^([^:#]+):\s*(.*)/);
+    const kv = line.match(/^([^:#]+):\s*(.*)$/);
     if (!kv) { i++; continue; }
     const key = kv[1].trim();
-    let val = kv[2].trim();
-    // array: next lines start with -
+    const val = kv[2].trim();
+
+    // Block array: next lines indented with `-`
     if (val === '' && lines[i+1]?.match(/^\s+-\s/)) {
       const items = [];
       i++;
       while (i < lines.length && lines[i].match(/^\s+-\s/)) {
-        items.push(lines[i].replace(/^\s+-\s*/, '').trim());
+        items.push(parseScalar(lines[i].replace(/^\s+-\s*/, '')));
         i++;
       }
       data[key] = items;
       continue;
     }
-    // inline array
-    if (val.startsWith('[')) {
-      try { data[key] = JSON.parse(val); } catch { data[key] = val; }
-    } else if (val === 'true') data[key] = true;
-    else if (val === 'false') data[key] = false;
-    else if (val !== '' && !isNaN(Number(val))) data[key] = Number(val);
-    else data[key] = val.replace(/^["']|["']$/g, '');
+    // Multiline literal | / folded >
+    if (val === '|' || val === '>') {
+      const fold = val === '>';
+      const collected = [];
+      let baseIndent = -1;
+      i++;
+      while (i < lines.length) {
+        const l = lines[i];
+        const m = l.match(/^(\s+)/);
+        if (!m) break;
+        if (baseIndent === -1) baseIndent = m[1].length;
+        if (m[1].length < baseIndent) break;
+        collected.push(l.slice(baseIndent));
+        i++;
+      }
+      data[key] = fold ? collected.join(' ') : collected.join('\n');
+      continue;
+    }
+    // Inline array
+    if (val.startsWith('[') && val.endsWith(']')) {
+      data[key] = parseInlineArray(val);
+      i++;
+      continue;
+    }
+    data[key] = parseScalar(val);
     i++;
   }
   return { data, body };
+}
+
+const RE_NEEDS_QUOTE = /[:#'"\n\\]/;
+
+function quoteString(s) {
+  // Double-quoted with backslash + double-quote escapes
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
+}
+
+function serializeScalar(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean' || typeof v === 'number') return String(v);
+  const s = String(v);
+  if (s === '' || RE_NEEDS_QUOTE.test(s) || /^\s|\s$/.test(s)) return quoteString(s);
+  return s;
 }
 
 export function serializeFrontMatter(data) {
@@ -258,11 +344,9 @@ export function serializeFrontMatter(data) {
   for (const [k, v] of Object.entries(data)) {
     if (Array.isArray(v)) {
       lines.push(`${k}:`);
-      v.forEach(item => lines.push(`  - ${item}`));
-    } else if (typeof v === 'string' && (v.includes(':') || v.includes('#') || v.includes("'"))) {
-      lines.push(`${k}: "${v.replace(/"/g, '\\"')}"`);
+      v.forEach(item => lines.push(`  - ${serializeScalar(item)}`));
     } else {
-      lines.push(`${k}: ${v}`);
+      lines.push(`${k}: ${serializeScalar(v)}`);
     }
   }
   lines.push('---');
@@ -350,9 +434,11 @@ export function toast(message, type = 'default', duration = 2500) {
   const container = document.getElementById('toastContainer');
   if (!container) return;
   const el = document.createElement('div');
-  el.className = 'toast';
+  el.className = 'toast toast-' + type;
   el.textContent = message;
   if (type === 'success') el.style.setProperty('--toast-accent', 'var(--success)');
+  else if (type === 'warn') el.style.setProperty('--toast-accent', 'var(--warning)');
+  else if (type === 'error') el.style.setProperty('--toast-accent', 'var(--danger)');
   container.appendChild(el);
   setTimeout(() => {
     el.style.animation = 'toast-out 200ms var(--ease-io) both';

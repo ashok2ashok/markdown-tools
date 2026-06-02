@@ -1,9 +1,12 @@
 import { htmlToMarkdown } from '../utils/converter.js';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { downloadFile, wordCount } from '../../../shared/utils.js';
+import { downloadFile, wordCount, debounce } from '../../../shared/utils.js';
+
+const PREVIEW_CHAR_LIMIT = 200_000;
 
 let md = '';
+let lastHtml = '';
 let flavor  = localStorage.getItem('c2md-ext-flavor')  || 'gfm';
 let smartTypo = localStorage.getItem('c2md-ext-smart') === 'true';
 let prettify  = localStorage.getItem('c2md-ext-pretty') !== 'false';
@@ -76,10 +79,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  const schedPreview = debounce(updatePreview, 250);
+  const schedStats   = debounce(updateStats, 250);
+
   output.addEventListener('input', () => {
     md = output.value;
-    updatePreview();
-    updateStats();
+    schedPreview();
+    schedStats();
     pasteHint.style.display = md ? 'none' : 'flex';
   });
 
@@ -95,14 +101,17 @@ document.addEventListener('DOMContentLoaded', () => {
   flavorSel.addEventListener('change', () => {
     flavor = flavorSel.value;
     localStorage.setItem('c2md-ext-flavor', flavor);
+    if (lastHtml) convert(lastHtml);
   });
   smartChk.addEventListener('change', () => {
     smartTypo = smartChk.checked;
     localStorage.setItem('c2md-ext-smart', smartTypo);
+    if (lastHtml) convert(lastHtml);
   });
   prettyChk.addEventListener('change', () => {
     prettify = prettyChk.checked;
     localStorage.setItem('c2md-ext-pretty', prettify);
+    if (lastHtml) convert(lastHtml);
   });
 
   viewBtns.forEach(btn => {
@@ -120,7 +129,10 @@ document.addEventListener('DOMContentLoaded', () => {
     themeBtn.textContent = dark ? '☀' : '☾';
   });
 
-  function convert(html) { setMd(htmlToMarkdown(html, { flavor, smartTypo, prettify })); }
+  function convert(html) {
+    lastHtml = html;
+    setMd(htmlToMarkdown(html, { flavor, smartTypo, prettify }));
+  }
 
   function setMd(text) {
     md = text;
@@ -132,7 +144,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updatePreview() {
-    preview.innerHTML = DOMPurify.sanitize(marked.parse(md || ''));
+    const src = md || '';
+    if (src.length > PREVIEW_CHAR_LIMIT) {
+      preview.innerHTML = `<p style="opacity:.7;font-style:italic">Preview paused - document is very large (${Math.round(src.length/1000)}K chars).</p>`;
+      return;
+    }
+    preview.innerHTML = DOMPurify.sanitize(marked.parse(src));
   }
 
   function updateStats() {

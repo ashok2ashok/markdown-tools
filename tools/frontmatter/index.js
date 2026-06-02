@@ -1,5 +1,7 @@
 import { parseFrontMatter, serializeFrontMatter, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
 import { store } from '../../shared/store.js';
+import { load } from '../../shared/deps.js';
+import { printHtml } from '../../shared/print.js';
 
 let ctrl = null;
 
@@ -165,6 +167,9 @@ export default {
 
     el('#fm-input').addEventListener('input', debounce(e => {
       store.set('currentMarkdown', e.target.value);
+      // Skip rebuild if user is editing a field - preserves focus
+      const fieldsEl = el('#fm-fields');
+      if (fieldsEl && fieldsEl.contains(document.activeElement)) return;
       parse();
     }, 300), { signal });
 
@@ -177,6 +182,14 @@ export default {
 
     el('#btn-fm-download').addEventListener('click', () => {
       downloadFile('document.md', el('#fm-output').value || '');
+    }, { signal });
+
+    el('#btn-fm-print').addEventListener('click', async () => {
+      const body = el('#fm-content').value || '';
+      const title = (fields.find(f => f.key.trim() === 'title')?.value) || '';
+      if (!body && !title) return;
+      await load('marked', 'dompurify');
+      printHtml(window.DOMPurify.sanitize(window.marked.parse(body)), { title: String(title) });
     }, { signal });
 
     el('#btn-fm-clear').addEventListener('click', () => {
@@ -204,7 +217,8 @@ function TEMPLATE() { return `
     <div class="header-spacer"></div>
     <div class="tool-actions">
       <button class="btn btn-secondary btn-sm" id="btn-fm-clear">Clear</button>
-      <button class="btn btn-secondary btn-sm" id="btn-fm-download"><svg class="icon"><use href="#icon-download"/></svg></button>
+      <button class="btn btn-secondary btn-sm" id="btn-fm-download" title="Download"><svg class="icon"><use href="#icon-download"/></svg></button>
+      <button class="btn btn-secondary btn-sm" id="btn-fm-print" title="Print / Save as PDF"><svg class="icon"><use href="#icon-print"/></svg></button>
       <button class="btn btn-primary btn-sm" id="btn-fm-copy"><svg class="icon"><use href="#icon-copy"/></svg> Copy</button>
     </div>
   </div>

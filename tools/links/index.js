@@ -1,4 +1,4 @@
-import { extractLinks, copyText, downloadFile, toast, debounce } from '../../shared/utils.js';
+import { extractLinks, copyText, downloadFile, toast, debounce, sanitizeUrl } from '../../shared/utils.js';
 import { store } from '../../shared/store.js';
 
 let ctrl = null;
@@ -14,7 +14,7 @@ export default {
     const el = s => container.querySelector(s);
 
     let allLinks = [];
-    let filter = 'all'; // 'all' | 'inline' | 'ref' | 'image'
+    let filter = 'all'; // 'all' | 'inline' | 'reference' | 'image'
 
     function extract() {
       const md = el('#links-input').value;
@@ -34,15 +34,17 @@ export default {
         return;
       }
 
+      currentFiltered = filtered;
       tbody.innerHTML = filtered.map((link, i) => {
-        const typeLabel = { inline: 'Inline', ref: 'Reference', image: 'Image' }[link.type] || link.type;
+        const typeLabel = TYPE_LABEL[link.type] || link.type;
         const typeBadge = `<span class="badge" style="background:${typeBg(link.type)};color:#fff;white-space:nowrap">${typeLabel}</span>`;
-        const urlDisplay = link.url
-          ? `<a href="${escAttr(link.url)}" target="_blank" rel="noopener noreferrer" class="link-url" title="${escAttr(link.url)}">${esc(truncate(link.url, 70))}</a>`
-          : `<span class="text-muted text-xs">[${esc(link.ref || '')}]</span>`;
+        const safeUrl = sanitizeUrl(link.url);
+        const urlDisplay = safeUrl
+          ? `<a href="${escAttr(safeUrl)}" target="_blank" rel="noopener noreferrer" class="link-url" title="${escAttr(safeUrl)}">${esc(truncate(safeUrl, 70))}</a>`
+          : `<span class="text-muted" title="Blocked unsafe URL scheme">${esc(truncate(link.url, 70))}</span>`;
         return `<tr>
           <td>${typeBadge}</td>
-          <td class="text-sm">${esc(link.text || link.alt || '')}</td>
+          <td class="text-sm">${esc(link.text || '')}</td>
           <td class="text-sm">${urlDisplay}</td>
           <td>
             <button class="btn btn-ghost btn-sm" data-idx="${i}" data-action="copy-url" title="Copy URL">
@@ -51,25 +53,28 @@ export default {
           </td>
         </tr>`;
       }).join('');
-
-      // Wire copy buttons
-      tbody.querySelectorAll('[data-action="copy-url"]').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const idx = +btn.dataset.idx;
-          const link = filtered[idx];
-          if (link?.url) { await copyText(link.url); toast('URL copied!'); }
-        }, { signal });
-      });
     }
+
+    let currentFiltered = [];
+    const TYPE_LABEL = { inline: 'Inline', reference: 'Reference', image: 'Image' };
+    const TYPE_BG    = { inline: '#3b82f6', reference: '#8b5cf6', image: '#10b981' };
 
     function typeBg(type) {
-      return { inline: '#3b82f6', ref: '#8b5cf6', image: '#10b981' }[type] || '#6b7280';
+      return TYPE_BG[type] || '#6b7280';
     }
+
+    // Event delegation: one listener for all copy buttons (avoids re-wiring per render)
+    el('#links-tbody').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-action="copy-url"]');
+      if (!btn) return;
+      const link = currentFiltered[+btn.dataset.idx];
+      if (link?.url) { await copyText(link.url); toast('URL copied!'); }
+    }, { signal });
 
     function exportCsv() {
       if (!allLinks.length) return;
-      const rows = [['Type','Text','URL','Ref']];
-      allLinks.forEach(l => rows.push([l.type, l.text||l.alt||'', l.url||'', l.ref||'']));
+      const rows = [['Type','Text','URL']];
+      allLinks.forEach(l => rows.push([l.type, l.text||'', l.url||'']));
       const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(',')).join('\n');
       downloadFile('links.csv', csv, 'text/csv');
     }
@@ -77,9 +82,8 @@ export default {
     function exportMarkdown() {
       if (!allLinks.length) return;
       const lines = allLinks.map(l => {
-        if (l.type === 'image') return `![${l.alt||''}](${l.url||''})`;
-        if (l.type === 'ref')   return `[${l.text}][${l.ref}]`;
-        return `[${l.text}](${l.url||''})`;
+        if (l.type === 'image') return `![${l.text||''}](${l.url||''})`;
+        return `[${l.text||''}](${l.url||''})`;
       });
       downloadFile('links.md', lines.join('\n'));
     }
@@ -108,7 +112,7 @@ export default {
 
     el('#btn-links-copy').addEventListener('click', async () => {
       const filtered = filter === 'all' ? allLinks : allLinks.filter(l => l.type === filter);
-      const text = filtered.map(l => l.url || l.ref || '').filter(Boolean).join('\n');
+      const text = filtered.map(l => l.url || '').filter(Boolean).join('\n');
       if (!text) { toast('No URLs to copy'); return; }
       await copyText(text);
       const btn = el('#btn-links-copy');
@@ -147,6 +151,7 @@ function truncate(s, n) {
   return s.length > n ? s.slice(0, n) + '…' : s;
 }
 
+
 function TEMPLATE() { return `
 <div class="tool-shell">
   <div class="tool-header">
@@ -175,7 +180,7 @@ function TEMPLATE() { return `
       <div class="seg-ctrl">
         <button class="seg-btn link-filter-btn active" data-filter="all">All</button>
         <button class="seg-btn link-filter-btn" data-filter="inline">Inline</button>
-        <button class="seg-btn link-filter-btn" data-filter="ref">Reference</button>
+        <button class="seg-btn link-filter-btn" data-filter="reference">Reference</button>
         <button class="seg-btn link-filter-btn" data-filter="image">Image</button>
       </div>
     </div>

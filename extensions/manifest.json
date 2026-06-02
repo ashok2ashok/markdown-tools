@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "Clipboard to Markdown",
-  "short_name": "C2MD",
+  "name": "Markdown Tools",
+  "short_name": "MDTools",
   "version": "1.0.0",
   "description": "Copy any web content as Markdown. Right-click selections, tables, or full pages. Click the icon for a full editor.",
   "action": {
-    "default_title": "Open Clipboard to Markdown editor",
+    "default_title": "Open Markdown Tools editor",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
