@@ -20,14 +20,24 @@ export default {
     container.innerHTML = TEMPLATE(flavor);
     const el = s => container.querySelector(s);
 
+    const statsEl = () => el('#conv-stats');
+    if (statsEl()) statsEl().textContent = 'Loading converter…';
+
     load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
       if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
       depsReady = true;
+      if (statsEl()) statsEl().textContent = '';
       convert();
+    }).catch(err => {
+      console.error('[convert] CDN load failed:', err);
+      if (statsEl()) statsEl().textContent = 'Converter unavailable - check connection';
     });
 
     function convert() {
-      if (!depsReady) return;
+      if (!depsReady) {
+        if (statsEl()) statsEl().textContent = 'Loading converter…';
+        return;
+      }
       const input = el('#conv-input').value;
       if (!input.trim()) {
         el('#conv-output').value = '';
@@ -93,8 +103,10 @@ export default {
     }, { signal });
 
     el('#conv-dir-btn').addEventListener('click', () => {
-      // Move converted output into input, flip direction (one-way swap)
-      el('#conv-input').value = el('#conv-output').value;
+      // Swap direction. Move output to input only if output has content;
+      // otherwise just flip direction so existing input becomes new mode's source.
+      const outVal = el('#conv-output').value;
+      if (outVal) el('#conv-input').value = outVal;
       setDirection(direction === 'md-to-html' ? 'html-to-md' : 'md-to-html');
     }, { signal });
 

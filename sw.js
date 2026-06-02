@@ -1,5 +1,5 @@
 // Service worker - app-shell cache-first, network-fallback
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = `mdtools-${VERSION}`;
 const SHELL = [
   './',
@@ -68,15 +68,29 @@ self.addEventListener('fetch', e => {
   }
 
   // Cross-origin CDNs (jsdelivr, esm.sh): stale-while-revalidate
+  // CRITICAL: always resolve to a real Response — respondWith with null/undefined
+  // throws "Returned response is null" and breaks the fetch entirely.
   if (url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'esm.sh') {
-    e.respondWith(
-      caches.match(req).then(hit => {
-        const fetchPromise = fetch(req).then(res => {
-          if (res.ok) caches.open(CACHE).then(c => c.put(req, res.clone()));
-          return res;
-        }).catch(() => hit);
-        return hit || fetchPromise;
-      })
-    );
+    e.respondWith((async () => {
+      const cached = await caches.match(req);
+      const fetchAndCache = fetch(req).then(res => {
+        if (res.ok) {
+          const clone = res.clone();
+          caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
+        }
+        return res;
+      });
+      if (cached) {
+        // Refresh in background; return cached immediately
+        fetchAndCache.catch(() => {});
+        return cached;
+      }
+      try {
+        return await fetchAndCache;
+      } catch (err) {
+        // Last resort — let browser try directly (don't intercept)
+        return fetch(req);
+      }
+    })());
   }
 });
