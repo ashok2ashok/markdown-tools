@@ -113,7 +113,7 @@ jobs:
           mkdir dist
           cp index.html app.js sw.js styles.css favicon.ico \
              background.svg background-dark.svg dist/
-          cp -r shared tools dist/
+          cp -r shared tools vendor dist/
           # tools/editor includes adapters/ subdir - cp -r handles it
 
       # ── 7. Upload Pages artifact ───────────────────────────────────────

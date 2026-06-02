@@ -41,7 +41,8 @@
     "background.svg",
     "background-dark.svg",
     "shared",
-    "tools"
+    "tools",
+    "vendor"
   ],
   "main": "app.js"
 }

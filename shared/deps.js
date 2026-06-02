@@ -24,9 +24,9 @@ const REGISTRY = {
     global: 'DOMPurify',
   },
   githubCss: {
-    // SRI omitted: jsdelivr edges have served differing bytes for this URL,
-    // causing intermittent integrity failures across CDN regions.
-    url: 'https://cdn.jsdelivr.net/npm/github-markdown-css@5.8.1/github-markdown.min.css',
+    // Self-hosted (vendor/) to avoid jsdelivr edge-byte variance that broke SRI.
+    // Source: github-markdown-css@5.8.1, sha384-CB5UrozGPrZ1wtKN7zzu52o1nSIKg24++ku8W0R+0l+XR5Rs3MQijT9HywGelTAH
+    url: 'vendor/github-markdown.min.css',
     type: 'css',
   },
   // Font Awesome 4.7 - EasyMDE's bundled CSS @imports it from dead maxcdn URL;
@@ -84,7 +84,8 @@ function loadCSS(name) {
     l.rel = 'stylesheet';
     l.href = reg.url;
     if (reg.integrity) l.integrity = reg.integrity;
-    l.crossOrigin = 'anonymous';
+    // crossOrigin only needed for cross-origin URLs (required by SRI)
+    if (/^https?:/.test(reg.url)) l.crossOrigin = 'anonymous';
     l.onload = resolve;
     l.onerror = () => reject(new Error(`Failed to load ${name} CSS`));
     document.head.appendChild(l);

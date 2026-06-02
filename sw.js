@@ -1,5 +1,5 @@
 // Service worker - app-shell cache-first, network-fallback
-const VERSION = 'v12';
+const VERSION = 'v13';
 const CACHE = `mdtools-${VERSION}`;
 const SHELL = [
   './',
@@ -7,6 +7,7 @@ const SHELL = [
   './app.js',
   './styles.css',
   './favicon.ico',
+  './vendor/github-markdown.min.css',
   './shared/store.js',
   './shared/utils.js',
   './shared/deps.js',
