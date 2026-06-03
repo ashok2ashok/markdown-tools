@@ -1,73 +1,24 @@
-// Service worker - app-shell cache-first, network-fallback
-const VERSION = 'v15';
-const CACHE = `mdtools-${VERSION}`;
-const SHELL = [
-  './',
-  './index.html',
-  './app.js',
-  './styles.css',
-  './favicon.ico',
-  './vendor/github-markdown.min.css',
-  './shared/store.js',
-  './shared/utils.js',
-  './shared/deps.js',
-  './shared/print.js',
-  './tools/paste/index.js',
-  './tools/editor/index.js',
-  './tools/editor/adapters/textarea.js',
-  './tools/editor/adapters/easymde.js',
-  './tools/editor/adapters/toastui.js',
-  './tools/convert/index.js',
-  './tools/tables/index.js',
-  './tools/toc/index.js',
-  './tools/format/index.js',
-  './tools/frontmatter/index.js',
-  './tools/diff/index.js',
-  './tools/links/index.js',
-  './tools/plugins/index.js',
-];
+// Tombstone service worker - clears all caches and unregisters itself.
+// Users stuck in earlier SW versions (especially the infinite-reload-loop
+// state) will install this on next update check. It then nukes everything
+// and detaches from the page. Subsequent loads bypass SW entirely.
+const VERSION = 'v16-tombstone';
 
 self.addEventListener('install', e => {
-  // cache:'reload' bypasses HTTP cache → SW always installs fresh files
-  e.waitUntil(
-    caches.open(CACHE).then(c =>
-      Promise.all(SHELL.map(url =>
-        fetch(new Request(url, { cache: 'reload' })).then(res => {
-          if (res.ok) return c.put(url, res);
-        })
-      ))
-    ).then(() => self.skipWaiting())
-  );
+  e.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    // Wipe every cache this origin has
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+    // Detach from clients
+    await self.registration.unregister();
+    // Force reload of all controlled clients so they pick up the no-SW state
+    const clients = await self.clients.matchAll({ type: 'window' });
+    clients.forEach(c => { try { c.navigate(c.url); } catch {} });
+  })());
 });
 
-self.addEventListener('fetch', e => {
-  const req = e.request;
-  if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-
-  // Only intercept SAME-ORIGIN requests. Cross-origin (CDNs) handled natively
-  // by browser - SW interception of CORS/integrity-checked requests has caused
-  // "Returned response is null" and "TypeError: Load failed" errors.
-  if (url.origin !== location.origin) return;
-
-  // Network-first with cache:'no-cache' to bypass HTTP cache. GitHub Pages
-  // serves Cache-Control max-age=600 which would otherwise stale-trap.
-  // fetch(url, init) — cache:'no-cache' forces revalidation.
-  e.respondWith(
-    fetch(req.url, { cache: 'no-cache', credentials: req.credentials }).then(res => {
-      if (res.ok) {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(req, clone)).catch(() => {});
-      }
-      return res;
-    }).catch(() => caches.match(req).then(hit => hit || new Response('Offline', { status: 503 })))
-  );
-});
+// No fetch handler -> all requests bypass SW after activation.

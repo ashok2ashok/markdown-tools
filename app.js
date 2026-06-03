@@ -259,26 +259,15 @@ applyTheme(store.get('theme', null));
 themeToggle.setAttribute('aria-pressed', document.documentElement.getAttribute('data-theme') === 'dark' ? 'true' : 'false');
 navigate(getRouteId());
 
-// Register service worker (HTTPS or localhost only).
-// updateViaCache:'none' bypasses HTTP cache for sw.js itself so new SW versions
-// are detected on every page load.
-if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
-  // Capture controller state at script-eval time (before any SW event fires).
-  // If there WAS a controller on initial load, a later controllerchange means
-  // a new SW took over -> safe to reload. If there was NO controller, the
-  // controllerchange fires from first-ever install/claim -> reloading would
-  // cause an infinite loop because the new page also fires it on initial claim.
-  const hadController = !!navigator.serviceWorker.controller;
-
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
-      .catch(err => console.warn('[mdtools] SW register failed:', err));
-  });
-
-  let refreshing = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!hadController || refreshing) return;
-    refreshing = true;
-    location.reload();
-  });
+// Service worker DISABLED. Previous SW caused stale-cache traps and an
+// infinite reload loop on update activation. sw.js is currently a tombstone
+// that unregisters itself on next browser check; do not re-register here.
+// If any registration still exists from a prior session, kill it.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations()
+    .then(regs => regs.forEach(r => r.unregister()))
+    .catch(() => {});
+  if ('caches' in self) {
+    caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {});
+  }
 }
