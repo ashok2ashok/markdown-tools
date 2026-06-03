@@ -52,27 +52,39 @@ export default {
     const statusChars = el('status-chars');
     const toolBody    = el('tool-body');
 
-    // Load shared URL
+    // Load shared URL - triggers dep load since preview needs marked+dompurify
     if (location.hash.startsWith('#share/')) {
-      decompressFromURL(location.hash).then(md => {
+      decompressFromURL(location.hash).then(async md => {
         output.value = md;
+        await ensureDeps();
         updatePreview();
         updateStatus();
       });
     }
 
-    // Load CDN deps; Turndown converters built lazily per-flavor on demand
-    load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
-      if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
-      convertersReady = true;
-      // Only process the last queued paste - earlier ones are stale
-      const last = pendingQueue.pop();
-      pendingQueue = [];
-      if (last) processHtml(last);
-    }).catch(err => {
-      console.error('[paste] CDN load failed:', err);
-      el('landing-msg').textContent = 'Failed to load converter - check your connection.';
-    });
+    // Deps loaded on demand: first paste, drop, share-URL load, or output edit.
+    // Avoids front-loading 90KB of converter code when user is just browsing.
+    let depsLoading = null;
+    function ensureDeps() {
+      if (convertersReady) return Promise.resolve();
+      if (depsLoading) return depsLoading;
+      el('landing-msg').textContent = 'Loading converter…';
+      depsLoading = load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
+        if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
+        convertersReady = true;
+        el('landing-msg').textContent = '';
+        // Drain any pastes that arrived during load
+        const last = pendingQueue.pop();
+        pendingQueue = [];
+        if (last) processHtml(last);
+      }).catch(err => {
+        console.error('[paste] dep load failed:', err);
+        el('landing-msg').textContent = 'Failed to load converter - check your connection.';
+        depsLoading = null;
+        throw err;
+      });
+      return depsLoading;
+    }
 
     // ── Conversion ──
     function convert(html) {
@@ -122,10 +134,10 @@ export default {
 
     function processHtml(html) {
       if (!html || !html.trim() || html === '<br>') { showEmptyWarning(); return; }
-      // CDN still loading - queue and show spinner
+      // Deps not ready - kick off load and queue this paste
       if (!convertersReady) {
         pendingQueue.push(html);
-        el('landing-msg').textContent = 'Converting…';
+        ensureDeps();
         return;
       }
       // Same content - skip

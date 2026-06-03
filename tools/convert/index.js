@@ -21,21 +21,29 @@ export default {
     const el = s => container.querySelector(s);
 
     const statsEl = () => el('#conv-stats');
-    if (statsEl()) statsEl().textContent = 'Loading converter…';
 
-    load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
-      if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
-      depsReady = true;
-      if (statsEl()) statsEl().textContent = '';
-      convert();
-    }).catch(err => {
-      console.error('[convert] CDN load failed:', err);
-      if (statsEl()) statsEl().textContent = 'Converter unavailable - check connection';
-    });
+    // Lazy: load deps only when there's actual input to convert
+    let depsLoading = null;
+    function ensureDeps() {
+      if (depsReady) return Promise.resolve();
+      if (depsLoading) return depsLoading;
+      if (statsEl()) statsEl().textContent = 'Loading converter…';
+      depsLoading = load('turndown','turndownGfm','marked','dompurify','githubCss').then(() => {
+        if (window.marked?.use) window.marked.use({ breaks: true, gfm: true });
+        depsReady = true;
+        if (statsEl()) statsEl().textContent = '';
+      }).catch(err => {
+        console.error('[convert] dep load failed:', err);
+        if (statsEl()) statsEl().textContent = 'Converter unavailable - check connection';
+        depsLoading = null;
+        throw err;
+      });
+      return depsLoading;
+    }
 
     function convert() {
       if (!depsReady) {
-        if (statsEl()) statsEl().textContent = 'Loading converter…';
+        ensureDeps().then(() => convert()).catch(() => {});
         return;
       }
       const input = el('#conv-input').value;

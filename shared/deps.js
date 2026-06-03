@@ -1,63 +1,51 @@
-// Lazy CDN loader - each dep loaded once, SRI-verified, cached as Promise
+// Lazy dep loader. All assets self-hosted under vendor/ so loads are
+// same-origin -> no SRI flake, no CSP issues, no CDN edge variance.
+// Each dep loaded once on demand; resolves to its window global (for scripts).
 
 const cache = new Map();
 
 const REGISTRY = {
   turndown: {
-    url: 'https://cdn.jsdelivr.net/npm/turndown@7.2.0/dist/turndown.js',
-    integrity: 'sha384-OGauEFaI5hnS8jXK4qdSGShAUAObMBKoLXgcL1ORhRh7ulx5jPZH35qVpacIEA4Z',
+    url: 'vendor/turndown.js',
     global: 'TurndownService',
   },
   turndownGfm: {
-    url: 'https://cdn.jsdelivr.net/npm/turndown-plugin-gfm@1.0.2/dist/turndown-plugin-gfm.js',
-    integrity: 'sha384-2TroN1N6OfLQ+K4qttptnIfMREzUlMa3hW/nZqDZXv7Sm9BkESfGEupDEqCbzyRl',
+    url: 'vendor/turndown-plugin-gfm.js',
     global: 'turndownPluginGfm',
   },
   marked: {
-    url: 'https://cdn.jsdelivr.net/npm/marked@15.0.7/marked.min.js',
-    integrity: 'sha384-H+hy9ULve6xfxRkWIh/YOtvDdpXgV2fmAGQkIDTxIgZwNoaoBal14Di2YTMR6MzR',
+    url: 'vendor/marked.min.js',
     global: 'marked',
   },
   dompurify: {
-    url: 'https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js',
-    integrity: 'sha384-eEu5CTj3qGvu9PdJuS+YlkNi7d2XxQROAFYOr59zgObtlcux1ae1Il3u7jvdCSWu',
+    url: 'vendor/purify.min.js',
     global: 'DOMPurify',
   },
   githubCss: {
-    // Self-hosted (vendor/) to avoid jsdelivr edge-byte variance that broke SRI.
-    // Source: github-markdown-css@5.8.1, sha384-CB5UrozGPrZ1wtKN7zzu52o1nSIKg24++ku8W0R+0l+XR5Rs3MQijT9HywGelTAH
     url: 'vendor/github-markdown.min.css',
     type: 'css',
   },
-  // Font Awesome 4.7 - EasyMDE's bundled CSS @imports it from dead maxcdn URL;
-  // we load it from jsdelivr first so toolbar icons render. The blocked maxcdn
-  // @import becomes harmless console noise.
   fontAwesome: {
-    url: 'https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css',
-    integrity: 'sha384-wvfXpqpZZVQGK6TAh5PVlGOfQNHSoD2xbE+QkPxCAFlNEevoEH3Sl0sibVcOQVnN',
+    url: 'vendor/font-awesome.min.css',
     type: 'css',
   },
   easymde: {
-    url: 'https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.js',
-    integrity: 'sha384-YDXeUfPZ4SP6vJpnF+ZMmf4B1bax6yd4Q/aNbkvLidRD843hPG5RE67M0IYT4LOq',
+    url: 'vendor/easymde.min.js',
     global: 'EasyMDE',
   },
   easymdeCss: {
-    url: 'https://cdn.jsdelivr.net/npm/easymde@2.20.0/dist/easymde.min.css',
-    integrity: 'sha384-3AvV7152TgYAMYdGZPqG9BpmSH2ZW6ewTDL0QV5PyNkl19KMI+yLMdJz183N8A2d',
+    url: 'vendor/easymde.min.css',
     type: 'css',
   },
-  // Toast UI Editor 3.x ships as ESM expecting pre-bundled ProseMirror deps;
-  // jsdelivr bundle requires CommonJS environment. Adapter loads JS via esm.sh
-  // dynamic import (which resolves all deps). CSS still served from jsdelivr.
+  // Toast UI Editor 3.x JS not viable to vendor as a single file -
+  // bundle requires ProseMirror deps at runtime. Adapter resolves via
+  // esm.sh dynamic import. Toast UI CSS however is self-contained.
   toastuiCss: {
-    url: 'https://cdn.jsdelivr.net/npm/@toast-ui/editor@3.2.2/dist/toastui-editor.css',
-    integrity: 'sha384-iONCORmrrRFYjYipi1NS4bgFEpQ8vCnQSTma1tan96M0nM1EZOWsRoW5sy3Q/hEl',
+    url: 'vendor/toastui-editor.css',
     type: 'css',
   },
   toastuiCssDark: {
-    url: 'https://cdn.jsdelivr.net/npm/@toast-ui/editor@3.2.2/dist/theme/toastui-editor-dark.css',
-    integrity: 'sha384-Ok3+liBSwABxWE//cTHVpZ2V85VPNgjNP+S5en3dpDbW0Aut8M/BBjKy2WxjJj+g',
+    url: 'vendor/toastui-editor-dark.css',
     type: 'css',
   },
 };
@@ -68,8 +56,6 @@ function loadScript(name) {
     if (window[reg.global]) return resolve(window[reg.global]);
     const s = document.createElement('script');
     s.src = reg.url;
-    if (reg.integrity) s.integrity = reg.integrity;
-    s.crossOrigin = 'anonymous';
     s.onload = () => resolve(window[reg.global]);
     s.onerror = () => reject(new Error(`Failed to load ${name}`));
     document.head.appendChild(s);
@@ -83,9 +69,6 @@ function loadCSS(name) {
     const l = document.createElement('link');
     l.rel = 'stylesheet';
     l.href = reg.url;
-    if (reg.integrity) l.integrity = reg.integrity;
-    // crossOrigin only needed for cross-origin URLs (required by SRI)
-    if (/^https?:/.test(reg.url)) l.crossOrigin = 'anonymous';
     l.onload = resolve;
     l.onerror = () => reject(new Error(`Failed to load ${name} CSS`));
     document.head.appendChild(l);
