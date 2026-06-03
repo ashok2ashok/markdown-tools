@@ -1,5 +1,5 @@
 // Service worker - app-shell cache-first, network-fallback
-const VERSION = 'v14';
+const VERSION = 'v15';
 const CACHE = `mdtools-${VERSION}`;
 const SHELL = [
   './',

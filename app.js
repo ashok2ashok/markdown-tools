@@ -263,19 +263,22 @@ navigate(getRouteId());
 // updateViaCache:'none' bypasses HTTP cache for sw.js itself so new SW versions
 // are detected on every page load.
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  // Capture controller state at script-eval time (before any SW event fires).
+  // If there WAS a controller on initial load, a later controllerchange means
+  // a new SW took over -> safe to reload. If there was NO controller, the
+  // controllerchange fires from first-ever install/claim -> reloading would
+  // cause an infinite loop because the new page also fires it on initial claim.
+  const hadController = !!navigator.serviceWorker.controller;
+
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
-      .then(reg => {
-        // Force check for updates on each load
-        reg.update?.();
-        // Reload once when a new SW takes control (only after first install)
-        let reloaded = false;
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (reloaded) return;
-          reloaded = true;
-          location.reload();
-        });
-      })
       .catch(err => console.warn('[mdtools] SW register failed:', err));
+  });
+
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || refreshing) return;
+    refreshing = true;
+    location.reload();
   });
 }
